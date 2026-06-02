@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import shlex
 import sys
+from pathlib import Path
 
 from moth.profiles.loader import load_profile, match_profile
 from moth.profiles.scaffold import build_profile_scaffold
@@ -28,28 +29,34 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--repo", required=True, help="Repo path to inspect")
     snapshot.add_argument("--profile", help="Explicit profile name or YAML path")
     snapshot.add_argument("--format", choices=("markdown", "json"), default="json")
+    snapshot.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     doctor = sub.add_parser("doctor", help="Validate a repo profile and emit a summary")
     doctor.add_argument("--repo", required=True, help="Repo path to inspect")
     doctor.add_argument("--profile", help="Explicit profile name or YAML path")
     doctor.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    doctor.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     report = sub.add_parser("report", help="Render a report for a repo profile")
     report.add_argument("--repo", required=True, help="Repo path to inspect")
     report.add_argument("--profile", help="Explicit profile name or YAML path")
     report.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    report.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     profile_cmd = sub.add_parser("profile", help="Show a profile")
     profile_cmd.add_argument("ref", help="Profile name or YAML path")
     profile_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+    profile_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     profiles_cmd = sub.add_parser("profiles", help="List available profiles")
     profiles_cmd.add_argument("--workspace", help="Workspace root to discover repo-local profiles")
     profiles_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+    profiles_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     workspace_cmd = sub.add_parser("workspace", help="Inspect all repo-local profiles in a workspace")
     workspace_cmd.add_argument("--workspace", required=True, help="Workspace root to inspect")
     workspace_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+    workspace_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     init_cmd = sub.add_parser("init", help="Create a repo-local moth profile scaffold")
     init_cmd.add_argument("--repo", required=True, help="Repo path to scaffold")
@@ -73,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
     sync_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
     sync_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+    sync_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     return parser
 
@@ -90,16 +98,23 @@ def _render_mapping_block(mapping: dict[str, object]) -> list[str]:
     return [f"  - {sub_key}: `{sub_value}`" for sub_key, sub_value in mapping.items()]
 
 
+def _write_output(output_path: str | None, rendered: str) -> None:
+    if not output_path:
+        return
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(rendered, encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.cmd in {"doctor", "report", "snapshot"}:
         profile = _resolve_profile(args.repo, args.profile)
         payload = build_snapshot(profile)
-        if args.format == "json":
-            sys.stdout.write(render_json(payload) + "\n")
-        else:
-            sys.stdout.write(render_markdown(payload))
+        rendered = render_json(payload) + "\n" if args.format == "json" else render_markdown(payload)
+        _write_output(args.output, rendered)
+        sys.stdout.write(rendered)
         return 0 if payload["status"] != "FAIL" else 1
 
     if args.cmd == "profile":
@@ -114,31 +129,34 @@ def main(argv: list[str] | None = None) -> int:
             "notes": profile.notes,
         }
         if args.format == "markdown":
-            sys.stdout.write("# Moth profile\n\n")
+            rendered = "# Moth profile\n\n"
             for key, value in payload.items():
                 if isinstance(value, dict):
-                    sys.stdout.write(f"- {key}:\n")
-                    sys.stdout.write("\n".join(_render_mapping_block(value)) + "\n")
+                    rendered += f"- {key}:\n"
+                    rendered += "\n".join(_render_mapping_block(value)) + "\n"
                 else:
-                    sys.stdout.write(f"- {key}: `{value}`\n")
+                    rendered += f"- {key}: `{value}`\n"
         else:
-            sys.stdout.write(render_json(payload) + "\n")
+            rendered = render_json(payload) + "\n"
+        _write_output(args.output, rendered)
+        if args.format == "markdown":
+            sys.stdout.write(rendered)
+        else:
+            sys.stdout.write(rendered)
         return 0
 
     if args.cmd == "profiles":
         payload = build_profiles_report(args.workspace)
-        if args.format == "json":
-            sys.stdout.write(render_json(payload) + "\n")
-        else:
-            sys.stdout.write(render_profiles_markdown(payload))
+        rendered = render_json(payload) + "\n" if args.format == "json" else render_profiles_markdown(payload)
+        _write_output(args.output, rendered)
+        sys.stdout.write(rendered)
         return 0 if payload["status"] != "FAIL" else 1
 
     if args.cmd == "workspace":
         payload = build_workspace_report(args.workspace)
-        if args.format == "json":
-            sys.stdout.write(render_json(payload) + "\n")
-        else:
-            sys.stdout.write(render_workspace_markdown(payload))
+        rendered = render_json(payload) + "\n" if args.format == "json" else render_workspace_markdown(payload)
+        _write_output(args.output, rendered)
+        sys.stdout.write(rendered)
         return 0 if payload["status"] != "FAIL" else 1
 
     if args.cmd == "init":
@@ -200,24 +218,26 @@ def main(argv: list[str] | None = None) -> int:
         profile = _resolve_profile(args.repo, args.profile)
         payload = build_sync_report(profile)
         if args.format == "json":
-            sys.stdout.write(render_json(payload) + "\n")
+            rendered = render_json(payload) + "\n"
         else:
-            sys.stdout.write("# Moth sync\n\n")
-            sys.stdout.write(f"- Schema version: `{payload['schema_version']}`\n")
-            sys.stdout.write(f"- Generated at: `{payload['generated_at']}`\n")
-            sys.stdout.write(f"- Status: `{payload['status']}`\n")
-            sys.stdout.write(f"- Repo: `{payload['profile']['repo_path']}`\n")
-            sys.stdout.write(f"- CodeGraph sync: `{payload['sync']['verdict']}`\n")
+            rendered = "# Moth sync\n\n"
+            rendered += f"- Schema version: `{payload['schema_version']}`\n"
+            rendered += f"- Generated at: `{payload['generated_at']}`\n"
+            rendered += f"- Status: `{payload['status']}`\n"
+            rendered += f"- Repo: `{payload['profile']['repo_path']}`\n"
+            rendered += f"- CodeGraph sync: `{payload['sync']['verdict']}`\n"
             if payload.get("issues"):
-                sys.stdout.write("\n## Issues\n")
+                rendered += "\n## Issues\n"
                 for item in payload["issues"]:
-                    sys.stdout.write(f"- {item}\n")
+                    rendered += f"- {item}\n"
             if payload.get("warnings"):
-                sys.stdout.write("\n## Warnings\n")
+                rendered += "\n## Warnings\n"
                 for item in payload["warnings"]:
-                    sys.stdout.write(f"- {item}\n")
-            sys.stdout.write("\n## Snapshot\n")
-            sys.stdout.write(render_markdown(payload["snapshot"]))
+                    rendered += f"- {item}\n"
+            rendered += "\n## Snapshot\n"
+            rendered += render_markdown(payload["snapshot"])
+        _write_output(args.output, rendered)
+        sys.stdout.write(rendered)
         return 0 if payload["status"] != "FAIL" else 1
 
     return 2

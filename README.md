@@ -56,6 +56,11 @@ other models can consume them without guessing the payload shape.
 `sync` refreshes the repo's CodeGraph index first and then emits a payload with
 both the sync result and the latest snapshot.
 
+All report-style commands accept `--output <path>` to persist the rendered
+payload to disk while still writing the same content to stdout:
+`snapshot`, `doctor`, `report`, `profile`, `profiles`, `workspace`, and
+`sync`.
+
 `profiles` lists the installed profile registry, and `--workspace` can scan a
 workspace tree for repo-local `.moth/profile.yaml` files so a fresh session can
 discover what Moth can inspect without opening YAML files by hand.
