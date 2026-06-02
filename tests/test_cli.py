@@ -20,5 +20,6 @@ def test_sync_emits_sync_and_snapshot_json(capsys) -> None:
     code = main(["sync", "--repo", "/Users/dp/Documents/M/stock/chunkymonkey", "--profile", "chunkymonkey", "--format", "json"])
     captured = capsys.readouterr()
     assert code == 0
+    assert '"schema_version"' in captured.out
     assert '"sync"' in captured.out
     assert '"snapshot"' in captured.out

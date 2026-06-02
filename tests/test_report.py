@@ -55,6 +55,8 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
 
     payload = report_module.build_report(profile)
 
+    assert payload["schema_version"] == 1
+    assert payload["generated_at"]
     assert payload["status"] == "WARN"
     assert payload["codegraph"]["state"] == "NOT_INITIALIZED"
     assert payload["complexity"]["summary"]["finding_count"] == 1
@@ -115,6 +117,8 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
 
     payload = report_module.build_sync_report(profile)
 
+    assert payload["schema_version"] == 1
+    assert payload["generated_at"]
     assert payload["status"] == "PASS"
     assert payload["sync"]["verdict"] == "PASS"
     assert payload["snapshot"]["status"] == "PASS"

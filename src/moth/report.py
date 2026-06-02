@@ -10,6 +10,8 @@ from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.profiles.loader import RepoProfile
+from moth.schema import SNAPSHOT_SCHEMA_VERSION
+from moth.schema import utc_now_iso
 
 
 def _jsonable(value: Any) -> Any:
@@ -95,6 +97,8 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         status = "WARN"
 
     return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": utc_now_iso(),
         "status": status,
         "profile": _jsonable(asdict(profile)),
         "issues": issues,
@@ -122,6 +126,8 @@ def build_sync_report(profile: RepoProfile) -> dict[str, Any]:
         status = "WARN"
 
     return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": utc_now_iso(),
         "status": status,
         "profile": snapshot["profile"],
         "sync": _jsonable(sync),
@@ -174,6 +180,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# Moth report",
         "",
+        f"- Schema version: `{report.get('schema_version', '?')}`",
+        f"- Generated at: `{report.get('generated_at', '?')}`",
         f"- Status: `{report['status']}`",
         f"- Repo: `{profile.get('repo_path', '?')}`",
         f"- Name: `{profile.get('name', '?')}`",

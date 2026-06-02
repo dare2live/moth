@@ -93,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(render_json(payload) + "\n")
         else:
             sys.stdout.write("# Moth sync\n\n")
+            sys.stdout.write(f"- Schema version: `{payload['schema_version']}`\n")
+            sys.stdout.write(f"- Generated at: `{payload['generated_at']}`\n")
             sys.stdout.write(f"- Status: `{payload['status']}`\n")
             sys.stdout.write(f"- Repo: `{payload['profile']['repo_path']}`\n")
             sys.stdout.write(f"- CodeGraph sync: `{payload['sync']['verdict']}`\n")

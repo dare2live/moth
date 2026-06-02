@@ -46,6 +46,9 @@ moth sync --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey
 `doctor` is kept as a compatibility alias, but `snapshot` is the primary
 machine-readable entrypoint.
 
+Snapshots include a stable `schema_version` and `generated_at` timestamp so
+other models can consume them without guessing the payload shape.
+
 `sync` refreshes the repo's CodeGraph index first and then emits a payload with
 both the sync result and the latest snapshot.
 
