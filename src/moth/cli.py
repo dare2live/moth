@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import argparse
+import sys
+
+from moth.profiles.loader import load_profile, match_profile
+from moth.snapshot import build_snapshot, render_json, render_markdown
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="moth", description="Cross-repo audit atlas")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    snapshot = sub.add_parser("snapshot", help="Emit a machine-readable repo snapshot")
+    snapshot.add_argument("--repo", required=True, help="Repo path to inspect")
+    snapshot.add_argument("--profile", help="Explicit profile name or YAML path")
+    snapshot.add_argument("--format", choices=("markdown", "json"), default="json")
+
+    doctor = sub.add_parser("doctor", help="Validate a repo profile and emit a summary")
+    doctor.add_argument("--repo", required=True, help="Repo path to inspect")
+    doctor.add_argument("--profile", help="Explicit profile name or YAML path")
+    doctor.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
+    report = sub.add_parser("report", help="Render a report for a repo profile")
+    report.add_argument("--repo", required=True, help="Repo path to inspect")
+    report.add_argument("--profile", help="Explicit profile name or YAML path")
+    report.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
+    profile_cmd = sub.add_parser("profile", help="Show a profile")
+    profile_cmd.add_argument("ref", help="Profile name or YAML path")
+    profile_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+
+    return parser
+
+
+def _resolve_profile(repo: str, profile_ref: str | None):
+    if profile_ref:
+        return load_profile(profile_ref)
+    matched = match_profile(repo)
+    if matched is None:
+        raise SystemExit(f"no profile matched repo {repo!r}; pass --profile explicitly")
+    return matched
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    if args.cmd in {"doctor", "report", "snapshot"}:
+        profile = _resolve_profile(args.repo, args.profile)
+        payload = build_snapshot(profile)
+        if args.format == "json":
+            sys.stdout.write(render_json(payload) + "\n")
+        else:
+            sys.stdout.write(render_markdown(payload))
+        return 0 if payload["status"] == "PASS" else 1
+
+    if args.cmd == "profile":
+        profile = load_profile(args.ref)
+        payload = {
+            "name": profile.name,
+            "repo_path": str(profile.repo_path),
+            "goal_path": str(profile.goal_path),
+            "handoff_path": str(profile.handoff_path),
+            "workflow_checkpoint_path": str(profile.workflow_checkpoint_path),
+            "quickstart_path": str(profile.quickstart_path),
+            "docs_root": str(profile.docs_root),
+            "codegraph_root": str(profile.codegraph_root),
+            "complexity_command": profile.complexity_command,
+            "notes": profile.notes,
+        }
+        if args.format == "markdown":
+            sys.stdout.write("# Moth profile\n\n")
+            for key, value in payload.items():
+                sys.stdout.write(f"- {key}: `{value}`\n")
+        else:
+            sys.stdout.write(render_json(payload) + "\n")
+        return 0
+
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

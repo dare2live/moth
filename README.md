@@ -1,0 +1,47 @@
+# Moth
+
+Moth is a JSON-first cross-repo snapshot tool for architecture, governance,
+complexity, and startup risk. It is closer to CodeGraph than to a document
+generator: the output is a machine-readable snapshot that other models or
+controllers can consume quickly.
+
+## What it owns
+
+- repo profiles
+- structured snapshots and health summaries
+- adapters around existing tools like CodeGraph and complexity-optimizer
+- repo-local quickstart pointers and risk flags
+
+## What it does not own
+
+- project business rules or thresholds
+- live writers / ETL / trading logic
+- project-specific truth sources beyond identifying them in a profile
+- long prose reports unless explicitly requested
+
+## Local install
+
+```bash
+cd /Users/dp/Documents/M/moth
+python -m pip install -e .
+```
+
+Then:
+
+```bash
+moth snapshot --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
+```
+
+`doctor` is kept as a compatibility alias, but `snapshot` is the primary
+machine-readable entrypoint.
+
+## Credits
+
+Moth credits the workflow and tooling foundations of:
+
+- CodeGraph
+- complexity-optimizer
+- ChunkyMonkey
+- LifeHack governance patterns
+
+See `NOTICE.md` for the maintained attribution list.
