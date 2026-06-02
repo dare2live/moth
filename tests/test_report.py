@@ -129,6 +129,7 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
 
 def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
     profile_ok = RepoProfile(
+        kind="profile",
         name="ok",
         repo_path=load_profile("chunkymonkey").repo_path,
         codegraph_root=load_profile("chunkymonkey").codegraph_root,
@@ -137,6 +138,7 @@ def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
         notes="ready",
     )
     profile_warn = RepoProfile(
+        kind="profile",
         name="warn",
         repo_path=load_profile("chunkymonkey").repo_path / "missing",
         codegraph_root=load_profile("chunkymonkey").codegraph_root,

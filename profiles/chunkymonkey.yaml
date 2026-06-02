@@ -1,3 +1,4 @@
+kind: profile
 name: chunkymonkey
 repo_path: /Users/dp/Documents/M/stock/chunkymonkey
 codegraph_root: .

@@ -1,3 +1,5 @@
+import yaml
+
 from moth.cli import main
 
 
@@ -72,3 +74,35 @@ def test_profiles_emits_markdown(capsys, monkeypatch) -> None:
     assert code == 0
     assert "# Moth profiles" in captured.out
     assert "chunkymonkey" in captured.out
+
+
+def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:
+    repo = tmp_path / "sample-repo"
+    repo.mkdir()
+    output = repo / ".moth" / "profile.yaml"
+    code = main(
+        [
+            "init",
+            "--repo",
+            str(repo),
+            "--name",
+            "sample-repo",
+            "--complexity-command",
+            "python -m moth",
+            "--evidence-path",
+            "goal=goal.md",
+            "--output",
+            str(output),
+            "--format",
+            "json",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert '"status": "PASS"' in captured.out
+    assert output.exists()
+    payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+    assert payload["kind"] == "profile"
+    assert payload["name"] == "sample-repo"
+    assert payload["complexity_command"] == ["python", "-m", "moth"]
+    assert payload["evidence_paths"]["goal"] == "goal.md"

@@ -1,3 +1,4 @@
+kind: template
 name: example
 repo_path: /absolute/path/to/repo
 codegraph_root: .

@@ -13,6 +13,7 @@ PROFILES_DIR = ROOT / "profiles"
 
 @dataclass(slots=True)
 class RepoProfile:
+    kind: str
     name: str
     repo_path: Path
     codegraph_root: Path
@@ -62,6 +63,7 @@ def load_profile(ref: str | Path) -> RepoProfile:
     data = _load_yaml(path)
     base = Path(str(data["repo_path"]))
     return RepoProfile(
+        kind=str(data.get("kind", "profile")),
         name=str(data["name"]),
         repo_path=base,
         codegraph_root=_resolve(base, data["codegraph_root"]),
@@ -74,11 +76,15 @@ def load_profile(ref: str | Path) -> RepoProfile:
 def list_profiles() -> list[RepoProfile]:
     if not PROFILES_DIR.exists():
         return []
-    return [load_profile(path) for path in sorted(PROFILES_DIR.glob("*.yaml"))]
+    profiles = [load_profile(path) for path in sorted(PROFILES_DIR.glob("*.yaml"))]
+    return [profile for profile in profiles if profile.kind == "profile"]
 
 
 def match_profile(repo_path: str | Path) -> RepoProfile | None:
     target = Path(repo_path).resolve()
+    local_profile_path = target / ".moth" / "profile.yaml"
+    if local_profile_path.exists():
+        return load_profile(local_profile_path)
     for profile in list_profiles():
         if profile.repo_path.resolve() == target:
             return profile
