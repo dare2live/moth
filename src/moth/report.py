@@ -10,6 +10,7 @@ from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.profiles.loader import RepoProfile
+from moth.profiles.loader import list_profiles
 from moth.schema import SNAPSHOT_SCHEMA_VERSION
 from moth.schema import utc_now_iso
 
@@ -137,6 +138,59 @@ def build_sync_report(profile: RepoProfile) -> dict[str, Any]:
     }
 
 
+def build_profiles_report() -> dict[str, Any]:
+    profiles = list_profiles()
+    entries: list[dict[str, Any]] = []
+    pass_count = 0
+    fail_count = 0
+    for profile in profiles:
+        issues = check_profile(profile)
+        status = "PASS" if not issues else "WARN"
+        if status == "PASS":
+            pass_count += 1
+        else:
+            fail_count += 1
+        entries.append(
+            {
+                "name": profile.name,
+                "repo_path": str(profile.repo_path),
+                "codegraph_root": str(profile.codegraph_root),
+                "complexity_command": profile.complexity_command,
+                "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
+                "notes": profile.notes,
+                "status": status,
+                "issues": issues,
+            }
+        )
+
+    issues: list[str] = []
+    warnings: list[str] = []
+    if not entries:
+        warnings.append("no profiles found")
+    elif fail_count:
+        warnings.append(f"{fail_count} profile(s) need attention")
+
+    status = "PASS"
+    if issues:
+        status = "FAIL"
+    elif warnings:
+        status = "WARN"
+
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "profiles": entries,
+        "summary": {
+            "total": len(entries),
+            "pass_count": pass_count,
+            "warn_count": fail_count,
+        },
+        "issues": issues,
+        "warnings": warnings,
+    }
+
+
 def _render_list(title: str, items: list[str]) -> list[str]:
     lines = [f"## {title}"]
     if items:
@@ -225,6 +279,38 @@ def render_markdown(report: dict[str, Any]) -> str:
     if complexity.get("issues"):
         lines.extend(_render_list("Complexity issues", complexity["issues"]))
     lines.extend(_render_findings(complexity.get("findings") or []))
+    return "\n".join(lines) + "\n"
+
+
+def render_profiles_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# Moth profiles",
+        "",
+        f"- Schema version: `{report.get('schema_version', '?')}`",
+        f"- Generated at: `{report.get('generated_at', '?')}`",
+        f"- Status: `{report.get('status', '?')}`",
+        f"- Total: `{report.get('summary', {}).get('total', 0)}`",
+        f"- PASS: `{report.get('summary', {}).get('pass_count', 0)}`",
+        f"- WARN: `{report.get('summary', {}).get('warn_count', 0)}`",
+        "",
+    ]
+    lines.extend(_render_list("Issues", report.get("issues") or []))
+    lines.append("")
+    lines.extend(_render_list("Warnings", report.get("warnings") or []))
+    lines.append("")
+    lines.append("## Profiles")
+    profiles = report.get("profiles") or []
+    if not profiles:
+        lines.append("- none")
+        return "\n".join(lines) + "\n"
+    for item in profiles:
+        lines.append(f"- `{item.get('name', '?')}` [{item.get('status', '?')}]")
+        lines.append(f"  - Repo: `{item.get('repo_path', '?')}`")
+        lines.append(f"  - CodeGraph root: `{item.get('codegraph_root', '?')}`")
+        if item.get("notes"):
+            lines.append(f"  - Notes: {item['notes']}")
+        if item.get("issues"):
+            lines.append(f"  - Issues: {', '.join(item['issues'])}")
     return "\n".join(lines) + "\n"
 
 

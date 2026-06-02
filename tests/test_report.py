@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from moth import report as report_module
 from moth.profiles.loader import load_profile
+from moth.profiles.loader import RepoProfile
 
 
 def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
@@ -124,3 +125,36 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
     assert payload["snapshot"]["status"] == "PASS"
     assert payload["snapshot"]["dirty_worktree"] == []
     assert payload["warnings"] == []
+
+
+def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
+    profile_ok = RepoProfile(
+        name="ok",
+        repo_path=load_profile("chunkymonkey").repo_path,
+        codegraph_root=load_profile("chunkymonkey").codegraph_root,
+        complexity_command=["python", "-m", "moth"],
+        evidence_paths={},
+        notes="ready",
+    )
+    profile_warn = RepoProfile(
+        name="warn",
+        repo_path=load_profile("chunkymonkey").repo_path / "missing",
+        codegraph_root=load_profile("chunkymonkey").codegraph_root,
+        complexity_command=[],
+        evidence_paths={},
+        notes="needs attention",
+    )
+
+    monkeypatch.setattr(report_module, "list_profiles", lambda: [profile_ok, profile_warn])
+    monkeypatch.setattr(report_module, "check_profile", lambda profile: [] if profile.name == "ok" else ["missing complexity command"])
+
+    payload = report_module.build_profiles_report()
+
+    assert payload["schema_version"] == 1
+    assert payload["generated_at"]
+    assert payload["status"] == "WARN"
+    assert payload["summary"]["total"] == 2
+    assert payload["summary"]["pass_count"] == 1
+    assert payload["summary"]["warn_count"] == 1
+    assert payload["profiles"][0]["status"] == "PASS"
+    assert payload["profiles"][1]["status"] == "WARN"

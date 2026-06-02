@@ -4,7 +4,9 @@ import argparse
 import sys
 
 from moth.profiles.loader import load_profile, match_profile
+from moth.report import build_profiles_report
 from moth.report import build_sync_report
+from moth.report import render_profiles_markdown
 from moth.snapshot import build_snapshot, render_json, render_markdown
 
 
@@ -30,6 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     profile_cmd = sub.add_parser("profile", help="Show a profile")
     profile_cmd.add_argument("ref", help="Profile name or YAML path")
     profile_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+
+    profiles_cmd = sub.add_parser("profiles", help="List available profiles")
+    profiles_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
 
     sync_cmd = sub.add_parser("sync", help="Refresh CodeGraph and emit the latest snapshot")
     sync_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
@@ -85,6 +90,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stdout.write(render_json(payload) + "\n")
         return 0
+
+    if args.cmd == "profiles":
+        payload = build_profiles_report()
+        if args.format == "json":
+            sys.stdout.write(render_json(payload) + "\n")
+        else:
+            sys.stdout.write(render_profiles_markdown(payload))
+        return 0 if payload["status"] != "FAIL" else 1
 
     if args.cmd == "sync":
         profile = _resolve_profile(args.repo, args.profile)
