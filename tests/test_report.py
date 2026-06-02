@@ -53,6 +53,7 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
 
     monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
 
     payload = report_module.build_report(profile)
 
@@ -61,7 +62,92 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
     assert payload["status"] == "WARN"
     assert payload["codegraph"]["state"] == "NOT_INITIALIZED"
     assert payload["complexity"]["summary"]["finding_count"] == 1
+    assert payload["complexity"]["baseline"]["status"] == "not_configured"
     assert payload["warnings"]
+
+
+def test_build_report_warns_on_new_complexity_high_with_loaded_baseline(monkeypatch) -> None:
+    profile = load_profile("chunkymonkey")
+
+    def fake_codegraph(root):
+        return {
+            "command": ["codegraph", "status", str(root)],
+            "returncode": 0,
+            "stdout": "Index is up to date",
+            "stderr": "",
+            "verdict": "PASS",
+            "state": "UP_TO_DATE",
+            "index_up_to_date": True,
+            "issues": [],
+            "index_statistics": {},
+            "nodes_by_kind": {},
+            "files_by_language": {},
+        }
+
+    def fake_complexity(root, command):
+        return {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [
+                {
+                    "path": "src/stable.py",
+                    "line": 12,
+                    "severity": "high",
+                    "kind": "nested-loop",
+                    "message": "Nested loop may create O(n^2) or worse behavior.",
+                    "suggestion": "Use an index.",
+                },
+                {
+                    "path": "src/new.py",
+                    "line": 42,
+                    "severity": "high",
+                    "kind": "nested-loop",
+                    "message": "Another nested loop may create O(n^2) or worse behavior.",
+                    "suggestion": "Use an index.",
+                },
+            ],
+            "summary": {
+                "finding_count": 2,
+                "severity_counts": {"high": 2},
+                "kind_counts": {"nested-loop": 2},
+                "high_count": 2,
+                "medium_count": 0,
+                "info_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
+    monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(
+        report_module,
+        "load_complexity_baseline",
+        lambda _path: (
+            [
+                {
+                    "path": "src/stable.py",
+                    "line": 99,
+                    "severity": "high",
+                    "kind": "nested-loop",
+                    "message": "Nested loop may create O(n^2) or worse behavior.",
+                    "suggestion": "Use an index.",
+                }
+            ],
+            "loaded",
+        ),
+    )
+
+    payload = report_module.build_report(profile)
+
+    assert payload["status"] == "WARN"
+    assert payload["complexity"]["baseline"]["status"] == "loaded"
+    assert payload["complexity"]["diff"]["status"] == "compared"
+    assert payload["complexity"]["diff"]["new_high_count"] == 1
+    assert any("complexity new high findings" in warning for warning in payload["warnings"])
+    assert payload["issues"] == []
 
 
 def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
@@ -114,6 +200,7 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(report_module, "run_codegraph_sync", fake_sync)
     monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
     monkeypatch.setattr(report_module, "git_status", lambda _repo_path: [])
 
     payload = report_module.build_sync_report(profile)

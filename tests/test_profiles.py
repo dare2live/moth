@@ -13,6 +13,9 @@ def test_load_chunkymonkey_profile() -> None:
     assert profile.repo_path == Path("/Users/dp/Documents/M/stock/chunkymonkey")
     assert profile.evidence_paths["goal"].name == "goal.md"
     assert profile.codegraph_root == Path("/Users/dp/Documents/M/stock/chunkymonkey")
+    assert profile.complexity_baseline_path == Path(
+        "/Users/dp/Documents/M/stock/chunkymonkey/data/reports/tooling/complexity_baseline.json"
+    )
 
 
 def test_match_profile_by_repo_path() -> None:

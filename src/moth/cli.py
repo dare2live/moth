@@ -125,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             "repo_path": str(profile.repo_path),
             "codegraph_root": str(profile.codegraph_root),
             "complexity_command": profile.complexity_command,
+            "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
             "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
             "notes": profile.notes,
         }

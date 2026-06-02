@@ -23,6 +23,10 @@ Profiles are intentionally lightweight: they point at evidence paths,
 codegraph roots, and optional complexity commands. The snapshot is the
 derived artifact; the source repos remain the truth source.
 
+If a repo keeps a complexity baseline JSON, profiles may also point at
+`complexity_baseline_path`. In that case Moth compares the current analyzer
+findings against the baseline and exposes the diff in the snapshot.
+
 ## Local install
 
 Use a Python 3.11+ interpreter for the virtualenv. If your default `python3`

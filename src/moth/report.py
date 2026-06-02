@@ -6,7 +6,9 @@ from typing import Any
 
 from moth.adapters.codegraph import run_status as run_codegraph_status
 from moth.adapters.codegraph import run_sync as run_codegraph_sync
+from moth.adapters.complexity import build_complexity_diff_report
 from moth.adapters.complexity import run_analysis as run_complexity_analysis
+from moth.adapters.complexity import load_complexity_baseline
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.profiles.loader import RepoProfile
@@ -43,6 +45,11 @@ def _warnings_from_codegraph(codegraph: dict[str, Any]) -> list[str]:
 
 
 def _warnings_from_complexity(complexity: dict[str, Any]) -> list[str]:
+    diff = complexity.get("diff") or {}
+    if diff.get("status") == "compared" and int(diff.get("new_high_count") or 0):
+        return [
+            f"complexity new high findings: {diff.get('new_high_count')} (baseline compared)",
+        ]
     summary = complexity.get("summary") or {}
     finding_count = int(summary.get("finding_count") or 0)
     if not finding_count:
@@ -81,6 +88,17 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     complexity = _empty_complexity_report()
     if profile.complexity_command:
         complexity = run_complexity_analysis(profile.repo_path, profile.complexity_command)
+    baseline_findings, baseline_status = load_complexity_baseline(profile.complexity_baseline_path)
+    complexity_diff = build_complexity_diff_report(
+        complexity.get("findings") or [],
+        baseline_findings,
+        baseline_status=baseline_status,
+    )
+    complexity["baseline"] = {
+        "path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
+        "status": baseline_status,
+    }
+    complexity["diff"] = complexity_diff
 
     warnings = []
     warnings.extend(_warnings_from_dirty(dirty))
@@ -91,7 +109,6 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         issues.extend(codegraph.get("issues") or ["codegraph status failed"])
     if complexity.get("verdict") == "FAIL":
         issues.extend(complexity.get("issues") or ["complexity analysis failed"])
-
     status = "PASS"
     if issues:
         status = "FAIL"
@@ -148,6 +165,7 @@ def _serialize_profile(profile: RepoProfile) -> dict[str, Any]:
         "repo_path": str(profile.repo_path),
         "codegraph_root": str(profile.codegraph_root),
         "complexity_command": profile.complexity_command,
+        "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
         "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
         "notes": profile.notes,
         "status": status,
@@ -261,6 +279,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("## Profile")
     lines.append(f"- CodeGraph root: `{profile.get('codegraph_root', '?')}`")
     lines.append(f"- Complexity command: `{profile.get('complexity_command', [])}`")
+    if profile.get("complexity_baseline_path"):
+        lines.append(f"- Complexity baseline path: `{profile['complexity_baseline_path']}`")
     if profile.get("evidence_paths"):
         lines.extend(_render_mapping("Evidence paths", profile["evidence_paths"]))
     lines.append("")
@@ -287,6 +307,16 @@ def render_markdown(report: dict[str, Any]) -> str:
     complexity = report.get("complexity") or {}
     lines.append("## Complexity")
     lines.append(f"- Verdict: `{complexity.get('verdict', 'UNKNOWN')}`")
+    baseline = complexity.get("baseline") or {}
+    lines.append(f"- Baseline status: `{baseline.get('status', 'UNKNOWN')}`")
+    if baseline.get("path"):
+        lines.append(f"- Baseline path: `{baseline.get('path')}`")
+    diff = complexity.get("diff") or {}
+    if diff:
+        lines.append(f"- Diff status: `{diff.get('status', 'UNKNOWN')}`")
+        lines.append(f"- New high findings: `{diff.get('new_high_count', 0)}`")
+        lines.append(f"- New findings: `{diff.get('new_count', 0)}`")
+        lines.append(f"- Resolved findings: `{diff.get('resolved_count', 0)}`")
     summary = complexity.get("summary") or {}
     lines.append(f"- Findings: `{summary.get('finding_count', 0)}`")
     if summary.get("severity_counts"):
@@ -332,6 +362,8 @@ def render_profiles_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- `{item.get('name', '?')}` [{item.get('status', '?')}]")
             lines.append(f"  - Repo: `{item.get('repo_path', '?')}`")
             lines.append(f"  - CodeGraph root: `{item.get('codegraph_root', '?')}`")
+            if item.get("complexity_baseline_path"):
+                lines.append(f"  - Complexity baseline: `{item['complexity_baseline_path']}`")
             if item.get("notes"):
                 lines.append(f"  - Notes: {item['notes']}")
             if item.get("issues"):

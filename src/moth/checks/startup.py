@@ -13,6 +13,8 @@ def check_profile(profile: RepoProfile) -> list[str]:
     ):
         if not Path(path).exists():
             issues.append(f"missing {label}: {path}")
+    if profile.complexity_baseline_path and not Path(profile.complexity_baseline_path).exists():
+        issues.append(f"missing complexity baseline: {profile.complexity_baseline_path}")
     for label, path in profile.evidence_paths.items():
         if not Path(path).exists():
             issues.append(f"missing {label}: {path}")

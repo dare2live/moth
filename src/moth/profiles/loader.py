@@ -18,6 +18,7 @@ class RepoProfile:
     repo_path: Path
     codegraph_root: Path
     complexity_command: list[str]
+    complexity_baseline_path: Path | None = None
     evidence_paths: dict[str, Path] = field(default_factory=dict)
     notes: str = ""
 
@@ -62,12 +63,14 @@ def load_profile(ref: str | Path) -> RepoProfile:
             path = (PROFILES_DIR / f"{path.name}.yaml").resolve()
     data = _load_yaml(path)
     base = Path(str(data["repo_path"]))
+    baseline_path = data.get("complexity_baseline_path")
     return RepoProfile(
         kind=str(data.get("kind", "profile")),
         name=str(data["name"]),
         repo_path=base,
         codegraph_root=_resolve(base, data["codegraph_root"]),
         complexity_command=[str(part) for part in data.get("complexity_command", [])],
+        complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
         evidence_paths=_load_evidence_paths(data, base),
         notes=str(data.get("notes", "")),
     )
