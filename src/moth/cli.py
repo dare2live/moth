@@ -16,6 +16,8 @@ from moth.report import render_profiles_markdown
 from moth.snapshot import build_snapshot, render_json, render_markdown
 from moth.schema import SNAPSHOT_SCHEMA_VERSION
 from moth.schema import utc_now_iso
+from moth.workspace import build_workspace_report
+from moth.workspace import render_workspace_markdown
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
     profiles_cmd = sub.add_parser("profiles", help="List available profiles")
     profiles_cmd.add_argument("--workspace", help="Workspace root to discover repo-local profiles")
     profiles_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+
+    workspace_cmd = sub.add_parser("workspace", help="Inspect all repo-local profiles in a workspace")
+    workspace_cmd.add_argument("--workspace", required=True, help="Workspace root to inspect")
+    workspace_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
 
     init_cmd = sub.add_parser("init", help="Create a repo-local moth profile scaffold")
     init_cmd.add_argument("--repo", required=True, help="Repo path to scaffold")
@@ -125,6 +131,14 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(render_json(payload) + "\n")
         else:
             sys.stdout.write(render_profiles_markdown(payload))
+        return 0 if payload["status"] != "FAIL" else 1
+
+    if args.cmd == "workspace":
+        payload = build_workspace_report(args.workspace)
+        if args.format == "json":
+            sys.stdout.write(render_json(payload) + "\n")
+        else:
+            sys.stdout.write(render_workspace_markdown(payload))
         return 0 if payload["status"] != "FAIL" else 1
 
     if args.cmd == "init":

@@ -42,6 +42,7 @@ Then:
 moth snapshot --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
 moth profiles --format json
 moth profiles --workspace /Users/dp/Documents/M --format json
+moth workspace --workspace /Users/dp/Documents/M --format json
 moth init --repo /Users/dp/Documents/M/stock/chunkymonkey --output /Users/dp/Documents/M/stock/chunkymonkey/.moth/profile.yaml
 moth sync --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
 ```
@@ -58,6 +59,9 @@ both the sync result and the latest snapshot.
 `profiles` lists the installed profile registry, and `--workspace` can scan a
 workspace tree for repo-local `.moth/profile.yaml` files so a fresh session can
 discover what Moth can inspect without opening YAML files by hand.
+
+`workspace` emits a workspace-level inventory plus per-repo snapshots for all
+repo-local profiles under the given root.
 
 `init` writes a repo-local scaffold at `.moth/profile.yaml` by default so
 Moth can auto-discover new repos without editing the bundled registry by hand.

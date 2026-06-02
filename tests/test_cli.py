@@ -165,3 +165,73 @@ def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:
     assert payload["name"] == "sample-repo"
     assert payload["complexity_command"] == ["python", "-m", "moth"]
     assert payload["evidence_paths"]["goal"] == "goal.md"
+
+
+def test_workspace_emits_json(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_workspace_report",
+        lambda workspace_root: {
+            "schema_version": 1,
+            "generated_at": "2026-06-02T12:00:00Z",
+            "status": "PASS",
+            "workspace_root": workspace_root,
+            "profiles_report": {},
+            "snapshots": [],
+            "summary": {
+                "snapshot_total": 0,
+                "snapshot_pass_count": 0,
+                "snapshot_warn_count": 0,
+                "snapshot_fail_count": 0,
+            },
+            "issues": [],
+            "warnings": [],
+        },
+    )
+    code = main(["workspace", "--workspace", "/tmp/workspace", "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert '"workspace_root": "/tmp/workspace"' in captured.out
+    assert '"snapshots"' in captured.out
+
+
+def test_workspace_emits_markdown(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_workspace_report",
+        lambda workspace_root: {
+            "schema_version": 1,
+            "generated_at": "2026-06-02T12:00:00Z",
+            "status": "PASS",
+            "workspace_root": workspace_root,
+            "profiles_report": {},
+            "snapshots": [
+                {
+                    "profile": {
+                        "kind": "profile",
+                        "name": "alpha",
+                        "repo_path": "/tmp/workspace/alpha",
+                        "codegraph_root": "/tmp/workspace/alpha",
+                    },
+                    "snapshot": {
+                        "issues": [],
+                        "warnings": [],
+                    },
+                    "status": "PASS",
+                    "issues": [],
+                    "warnings": [],
+                }
+            ],
+            "summary": {
+                "snapshot_total": 1,
+                "snapshot_pass_count": 1,
+                "snapshot_warn_count": 0,
+                "snapshot_fail_count": 0,
+            },
+            "issues": [],
+            "warnings": [],
+        },
+    )
+    code = main(["workspace", "--workspace", "/tmp/workspace", "--format", "markdown"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "# Moth workspace" in captured.out
+    assert "alpha" in captured.out
