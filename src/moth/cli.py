@@ -42,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     profile_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
 
     profiles_cmd = sub.add_parser("profiles", help="List available profiles")
+    profiles_cmd.add_argument("--workspace", help="Workspace root to discover repo-local profiles")
     profiles_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
 
     init_cmd = sub.add_parser("init", help="Create a repo-local moth profile scaffold")
@@ -119,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "profiles":
-        payload = build_profiles_report()
+        payload = build_profiles_report(args.workspace)
         if args.format == "json":
             sys.stdout.write(render_json(payload) + "\n")
         else:

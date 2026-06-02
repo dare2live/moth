@@ -30,12 +30,21 @@ def test_sync_emits_sync_and_snapshot_json(capsys) -> None:
 def test_profiles_emits_json(capsys, monkeypatch) -> None:
     monkeypatch.setattr(
         "moth.cli.build_profiles_report",
-        lambda: {
+        lambda _workspace=None: {
             "schema_version": 1,
             "generated_at": "2026-06-02T12:00:00Z",
             "status": "PASS",
-            "profiles": [],
-            "summary": {"total": 0, "pass_count": 0, "warn_count": 0},
+            "workspace_root": None,
+            "registry_profiles": [],
+            "workspace_profiles": [],
+            "summary": {
+                "registry_total": 0,
+                "registry_pass_count": 0,
+                "registry_warn_count": 0,
+                "workspace_total": 0,
+                "workspace_pass_count": 0,
+                "workspace_warn_count": 0,
+            },
             "issues": [],
             "warnings": [],
         },
@@ -44,18 +53,21 @@ def test_profiles_emits_json(capsys, monkeypatch) -> None:
     captured = capsys.readouterr()
     assert code == 0
     assert '"schema_version"' in captured.out
-    assert '"profiles"' in captured.out
+    assert '"registry_profiles"' in captured.out
+    assert '"workspace_profiles"' in captured.out
 
 
 def test_profiles_emits_markdown(capsys, monkeypatch) -> None:
     monkeypatch.setattr(
         "moth.cli.build_profiles_report",
-        lambda: {
+        lambda _workspace=None: {
             "schema_version": 1,
             "generated_at": "2026-06-02T12:00:00Z",
             "status": "PASS",
-            "profiles": [
+            "workspace_root": None,
+            "registry_profiles": [
                 {
+                    "kind": "profile",
                     "name": "chunkymonkey",
                     "repo_path": "/Users/dp/Documents/M/stock/chunkymonkey",
                     "codegraph_root": "/Users/dp/Documents/M/stock/chunkymonkey",
@@ -64,7 +76,15 @@ def test_profiles_emits_markdown(capsys, monkeypatch) -> None:
                     "issues": [],
                 }
             ],
-            "summary": {"total": 1, "pass_count": 1, "warn_count": 0},
+            "workspace_profiles": [],
+            "summary": {
+                "registry_total": 1,
+                "registry_pass_count": 1,
+                "registry_warn_count": 0,
+                "workspace_total": 0,
+                "workspace_pass_count": 0,
+                "workspace_warn_count": 0,
+            },
             "issues": [],
             "warnings": [],
         },
@@ -74,6 +94,45 @@ def test_profiles_emits_markdown(capsys, monkeypatch) -> None:
     assert code == 0
     assert "# Moth profiles" in captured.out
     assert "chunkymonkey" in captured.out
+
+
+def test_profiles_emits_workspace_json(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_profiles_report",
+        lambda workspace_root=None: {
+            "schema_version": 1,
+            "generated_at": "2026-06-02T12:00:00Z",
+            "status": "PASS",
+            "workspace_root": workspace_root,
+            "registry_profiles": [],
+            "workspace_profiles": [
+                {
+                    "kind": "profile",
+                    "name": "alpha",
+                    "repo_path": "/tmp/workspace/alpha",
+                    "codegraph_root": "/tmp/workspace/alpha",
+                    "notes": "local",
+                    "status": "PASS",
+                    "issues": [],
+                }
+            ],
+            "summary": {
+                "registry_total": 0,
+                "registry_pass_count": 0,
+                "registry_warn_count": 0,
+                "workspace_total": 1,
+                "workspace_pass_count": 1,
+                "workspace_warn_count": 0,
+            },
+            "issues": [],
+            "warnings": [],
+        },
+    )
+    code = main(["profiles", "--workspace", "/tmp/workspace", "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert '"workspace_root": "/tmp/workspace"' in captured.out
+    assert '"workspace_profiles"' in captured.out
 
 
 def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:

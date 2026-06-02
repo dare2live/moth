@@ -80,6 +80,21 @@ def list_profiles() -> list[RepoProfile]:
     return [profile for profile in profiles if profile.kind == "profile"]
 
 
+def discover_profiles(search_root: str | Path) -> list[RepoProfile]:
+    root = Path(search_root).resolve()
+    if not root.exists():
+        return []
+    profile_paths = sorted(
+        {
+            path.resolve()
+            for path in root.rglob("profile.yaml")
+            if path.parent.name == ".moth"
+        }
+    )
+    profiles = [load_profile(path) for path in profile_paths]
+    return [profile for profile in profiles if profile.kind == "profile"]
+
+
 def match_profile(repo_path: str | Path) -> RepoProfile | None:
     target = Path(repo_path).resolve()
     local_profile_path = target / ".moth" / "profile.yaml"

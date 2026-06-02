@@ -147,16 +147,21 @@ def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
         notes="needs attention",
     )
 
-    monkeypatch.setattr(report_module, "list_profiles", lambda: [profile_ok, profile_warn])
+    monkeypatch.setattr(report_module, "list_profiles", lambda: [profile_ok])
+    monkeypatch.setattr(report_module, "discover_profiles", lambda _root: [profile_warn])
     monkeypatch.setattr(report_module, "check_profile", lambda profile: [] if profile.name == "ok" else ["missing complexity command"])
 
-    payload = report_module.build_profiles_report()
+    payload = report_module.build_profiles_report("/tmp/workspace")
 
     assert payload["schema_version"] == 1
     assert payload["generated_at"]
     assert payload["status"] == "WARN"
-    assert payload["summary"]["total"] == 2
-    assert payload["summary"]["pass_count"] == 1
-    assert payload["summary"]["warn_count"] == 1
-    assert payload["profiles"][0]["status"] == "PASS"
-    assert payload["profiles"][1]["status"] == "WARN"
+    assert payload["workspace_root"] == "/tmp/workspace"
+    assert payload["summary"]["registry_total"] == 1
+    assert payload["summary"]["registry_pass_count"] == 1
+    assert payload["summary"]["registry_warn_count"] == 0
+    assert payload["summary"]["workspace_total"] == 1
+    assert payload["summary"]["workspace_pass_count"] == 0
+    assert payload["summary"]["workspace_warn_count"] == 1
+    assert payload["registry_profiles"][0]["status"] == "PASS"
+    assert payload["workspace_profiles"][0]["status"] == "WARN"

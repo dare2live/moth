@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from moth.profiles.loader import list_profiles, load_profile, match_profile
+from moth.profiles.loader import discover_profiles
 from moth.profiles.scaffold import build_profile_scaffold
 from moth.profiles.scaffold import default_profile_path
 from moth.profiles.scaffold import write_profile_scaffold
@@ -46,3 +47,23 @@ def test_match_profile_prefers_repo_local_profile(tmp_path) -> None:
     assert profile.repo_path == repo.resolve()
     assert profile.kind == "profile"
     assert profile.evidence_paths["goal"] == repo.resolve() / "goal.md"
+
+
+def test_discover_profiles_finds_repo_local_profiles(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    repo = workspace / "alpha"
+    repo.mkdir(parents=True)
+    profile_path = default_profile_path(repo)
+    payload = build_profile_scaffold(
+        repo,
+        name="alpha",
+        complexity_command=["python", "-m", "moth"],
+        evidence_paths={"goal": "goal.md"},
+        notes="local",
+    )
+    write_profile_scaffold(profile_path, payload, force=True)
+
+    profiles = discover_profiles(workspace)
+    assert len(profiles) == 1
+    assert profiles[0].name == "alpha"
+    assert profiles[0].repo_path == repo.resolve()
