@@ -5,7 +5,7 @@ repo-local evidence and turns it into onboarding and audit summaries.
 
 ## Ownership
 
-- **Profiles**: repo-specific paths, gate commands, and report locations
+- **Profiles**: repo-specific evidence paths, codegraph roots, and adapter commands
 - **Adapters**: wrappers around existing tooling such as CodeGraph and
   complexity analysis
 - **Checks**: startup, docs, worktree, and governance readiness checks

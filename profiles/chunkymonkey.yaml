@@ -1,10 +1,5 @@
 name: chunkymonkey
 repo_path: /Users/dp/Documents/M/stock/chunkymonkey
-goal_path: goal.md
-handoff_path: SESSION_HANDOFF.md
-workflow_checkpoint_path: analysis/workflow_checkpoint.md
-quickstart_path: docs/chunkyctl_session_quickstart.md
-docs_root: docs
 codegraph_root: .
 complexity_command:
   - python
@@ -12,4 +7,10 @@ complexity_command:
   - /Users/dp/Documents/M/stock/chunkymonkey
   - --format
   - markdown
+evidence_paths:
+  goal: goal.md
+  handoff: SESSION_HANDOFF.md
+  workflow_checkpoint: analysis/workflow_checkpoint.md
+  quickstart: docs/chunkyctl_session_quickstart.md
+  docs: docs
 notes: Controller-first profile for the main stock repo.

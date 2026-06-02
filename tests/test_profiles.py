@@ -7,7 +7,8 @@ def test_load_chunkymonkey_profile() -> None:
     profile = load_profile("chunkymonkey")
     assert profile.name == "chunkymonkey"
     assert profile.repo_path == Path("/Users/dp/Documents/M/stock/chunkymonkey")
-    assert profile.goal_path.name == "goal.md"
+    assert profile.evidence_paths["goal"].name == "goal.md"
+    assert profile.codegraph_root == Path("/Users/dp/Documents/M/stock/chunkymonkey")
 
 
 def test_match_profile_by_repo_path() -> None:

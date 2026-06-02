@@ -18,10 +18,25 @@
         "type": "string"
       }
     },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "dirty_worktree": {
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "codegraph": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "complexity": {
+      "type": "object",
+      "additionalProperties": true
       }
     }
   },

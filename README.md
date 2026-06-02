@@ -10,7 +10,7 @@ controllers can consume quickly.
 - repo profiles
 - structured snapshots and health summaries
 - adapters around existing tools like CodeGraph and complexity-optimizer
-- repo-local quickstart pointers and risk flags
+- repo-local evidence paths and risk flags
 
 ## What it does not own
 
@@ -19,10 +19,16 @@ controllers can consume quickly.
 - project-specific truth sources beyond identifying them in a profile
 - long prose reports unless explicitly requested
 
+Profiles are intentionally lightweight: they point at evidence paths,
+codegraph roots, and optional complexity commands. The snapshot is the
+derived artifact; the source repos remain the truth source.
+
 ## Local install
 
 ```bash
 cd /Users/dp/Documents/M/moth
+python3 -m venv .venv
+. .venv/bin/activate
 python -m pip install -e .
 ```
 
@@ -34,6 +40,9 @@ moth snapshot --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymo
 
 `doctor` is kept as a compatibility alias, but `snapshot` is the primary
 machine-readable entrypoint.
+
+Exit codes are intentionally soft: `PASS` and `WARN` both exit `0`, and only
+`FAIL` exits non-zero. Warnings are carried in the JSON payload.
 
 ## Credits
 

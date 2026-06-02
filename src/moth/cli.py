@@ -42,6 +42,10 @@ def _resolve_profile(repo: str, profile_ref: str | None):
     return matched
 
 
+def _render_mapping_block(mapping: dict[str, object]) -> list[str]:
+    return [f"  - {sub_key}: `{sub_value}`" for sub_key, sub_value in mapping.items()]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -52,26 +56,26 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(render_json(payload) + "\n")
         else:
             sys.stdout.write(render_markdown(payload))
-        return 0 if payload["status"] == "PASS" else 1
+        return 0 if payload["status"] != "FAIL" else 1
 
     if args.cmd == "profile":
         profile = load_profile(args.ref)
         payload = {
             "name": profile.name,
             "repo_path": str(profile.repo_path),
-            "goal_path": str(profile.goal_path),
-            "handoff_path": str(profile.handoff_path),
-            "workflow_checkpoint_path": str(profile.workflow_checkpoint_path),
-            "quickstart_path": str(profile.quickstart_path),
-            "docs_root": str(profile.docs_root),
             "codegraph_root": str(profile.codegraph_root),
             "complexity_command": profile.complexity_command,
+            "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
             "notes": profile.notes,
         }
         if args.format == "markdown":
             sys.stdout.write("# Moth profile\n\n")
             for key, value in payload.items():
-                sys.stdout.write(f"- {key}: `{value}`\n")
+                if isinstance(value, dict):
+                    sys.stdout.write(f"- {key}:\n")
+                    sys.stdout.write("\n".join(_render_mapping_block(value)) + "\n")
+                else:
+                    sys.stdout.write(f"- {key}: `{value}`\n")
         else:
             sys.stdout.write(render_json(payload) + "\n")
         return 0

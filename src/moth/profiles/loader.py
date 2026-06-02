@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,13 +15,9 @@ PROFILES_DIR = ROOT / "profiles"
 class RepoProfile:
     name: str
     repo_path: Path
-    goal_path: Path
-    handoff_path: Path
-    workflow_checkpoint_path: Path
-    quickstart_path: Path
-    docs_root: Path
     codegraph_root: Path
     complexity_command: list[str]
+    evidence_paths: dict[str, Path] = field(default_factory=dict)
     notes: str = ""
 
 
@@ -37,6 +33,25 @@ def _resolve(base: Path, value: Any) -> Path:
     return path if path.is_absolute() else (base / path).resolve()
 
 
+def _load_evidence_paths(data: dict[str, Any], base: Path) -> dict[str, Path]:
+    raw = data.get("evidence_paths")
+    if isinstance(raw, dict):
+        return {str(label): _resolve(base, value) for label, value in raw.items()}
+
+    legacy_keys = {
+        "goal": data.get("goal_path"),
+        "handoff": data.get("handoff_path"),
+        "workflow_checkpoint": data.get("workflow_checkpoint_path"),
+        "quickstart": data.get("quickstart_path"),
+        "docs": data.get("docs_root"),
+    }
+    return {
+        label: _resolve(base, value)
+        for label, value in legacy_keys.items()
+        if value is not None
+    }
+
+
 def load_profile(ref: str | Path) -> RepoProfile:
     path = Path(ref)
     if not path.is_absolute():
@@ -49,13 +64,9 @@ def load_profile(ref: str | Path) -> RepoProfile:
     return RepoProfile(
         name=str(data["name"]),
         repo_path=base,
-        goal_path=_resolve(base, data["goal_path"]),
-        handoff_path=_resolve(base, data["handoff_path"]),
-        workflow_checkpoint_path=_resolve(base, data["workflow_checkpoint_path"]),
-        quickstart_path=_resolve(base, data["quickstart_path"]),
-        docs_root=_resolve(base, data["docs_root"]),
         codegraph_root=_resolve(base, data["codegraph_root"]),
         complexity_command=[str(part) for part in data.get("complexity_command", [])],
+        evidence_paths=_load_evidence_paths(data, base),
         notes=str(data.get("notes", "")),
     )
 
