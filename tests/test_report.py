@@ -59,3 +59,64 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
     assert payload["codegraph"]["state"] == "NOT_INITIALIZED"
     assert payload["complexity"]["summary"]["finding_count"] == 1
     assert payload["warnings"]
+
+
+def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
+    profile = load_profile("chunkymonkey")
+
+    def fake_sync(root):
+        return {
+            "command": ["codegraph", "sync", str(root)],
+            "returncode": 0,
+            "stdout": "synced",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+        }
+
+    def fake_codegraph(root):
+        return {
+            "command": ["codegraph", "status", str(root)],
+            "returncode": 0,
+            "stdout": "Index is up to date",
+            "stderr": "",
+            "verdict": "PASS",
+            "state": "UP_TO_DATE",
+            "index_up_to_date": True,
+            "issues": [],
+            "index_statistics": {},
+            "nodes_by_kind": {},
+            "files_by_language": {},
+        }
+
+    def fake_complexity(root, command):
+        return {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [],
+            "summary": {
+                "finding_count": 0,
+                "severity_counts": {},
+                "kind_counts": {},
+                "high_count": 0,
+                "medium_count": 0,
+                "info_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(report_module, "run_codegraph_sync", fake_sync)
+    monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
+    monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "git_status", lambda _repo_path: [])
+
+    payload = report_module.build_sync_report(profile)
+
+    assert payload["status"] == "PASS"
+    assert payload["sync"]["verdict"] == "PASS"
+    assert payload["snapshot"]["status"] == "PASS"
+    assert payload["snapshot"]["dirty_worktree"] == []
+    assert payload["warnings"] == []

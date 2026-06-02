@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from moth.profiles.loader import load_profile, match_profile
+from moth.report import build_sync_report
 from moth.snapshot import build_snapshot, render_json, render_markdown
 
 
@@ -29,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     profile_cmd = sub.add_parser("profile", help="Show a profile")
     profile_cmd.add_argument("ref", help="Profile name or YAML path")
     profile_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+
+    sync_cmd = sub.add_parser("sync", help="Refresh CodeGraph and emit the latest snapshot")
+    sync_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
+    sync_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
+    sync_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
 
     return parser
 
@@ -79,6 +85,28 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stdout.write(render_json(payload) + "\n")
         return 0
+
+    if args.cmd == "sync":
+        profile = _resolve_profile(args.repo, args.profile)
+        payload = build_sync_report(profile)
+        if args.format == "json":
+            sys.stdout.write(render_json(payload) + "\n")
+        else:
+            sys.stdout.write("# Moth sync\n\n")
+            sys.stdout.write(f"- Status: `{payload['status']}`\n")
+            sys.stdout.write(f"- Repo: `{payload['profile']['repo_path']}`\n")
+            sys.stdout.write(f"- CodeGraph sync: `{payload['sync']['verdict']}`\n")
+            if payload.get("issues"):
+                sys.stdout.write("\n## Issues\n")
+                for item in payload["issues"]:
+                    sys.stdout.write(f"- {item}\n")
+            if payload.get("warnings"):
+                sys.stdout.write("\n## Warnings\n")
+                for item in payload["warnings"]:
+                    sys.stdout.write(f"- {item}\n")
+            sys.stdout.write("\n## Snapshot\n")
+            sys.stdout.write(render_markdown(payload["snapshot"]))
+        return 0 if payload["status"] != "FAIL" else 1
 
     return 2
 

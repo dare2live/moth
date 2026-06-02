@@ -5,6 +5,7 @@ from dataclasses import asdict
 from typing import Any
 
 from moth.adapters.codegraph import run_status as run_codegraph_status
+from moth.adapters.codegraph import run_sync as run_codegraph_sync
 from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
@@ -101,6 +102,32 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         "dirty_worktree": dirty,
         "codegraph": _jsonable(codegraph),
         "complexity": _jsonable(complexity),
+    }
+
+
+def build_sync_report(profile: RepoProfile) -> dict[str, Any]:
+    sync = run_codegraph_sync(profile.codegraph_root)
+    snapshot = build_report(profile)
+    issues = list(snapshot.get("issues") or [])
+    warnings = list(snapshot.get("warnings") or [])
+    if sync.get("verdict") == "FAIL":
+        issues = [*issues, *(sync.get("issues") or ["codegraph sync failed"])]
+    elif sync.get("verdict") == "WARN":
+        warnings = [*warnings, *(sync.get("issues") or ["codegraph sync returned warning"])]
+
+    status = snapshot.get("status", "PASS")
+    if issues:
+        status = "FAIL"
+    elif warnings or sync.get("verdict") == "WARN":
+        status = "WARN"
+
+    return {
+        "status": status,
+        "profile": snapshot["profile"],
+        "sync": _jsonable(sync),
+        "snapshot": snapshot,
+        "issues": issues,
+        "warnings": warnings,
     }
 
 

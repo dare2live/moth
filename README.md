@@ -25,6 +25,10 @@ derived artifact; the source repos remain the truth source.
 
 ## Local install
 
+Use a Python 3.11+ interpreter for the virtualenv. If your default `python3`
+is older, point the venv at an explicit 3.11+ binary and upgrade
+`pip`/`setuptools`/`wheel` inside the venv before installing editable.
+
 ```bash
 cd /Users/dp/Documents/M/moth
 python3 -m venv .venv
@@ -36,10 +40,14 @@ Then:
 
 ```bash
 moth snapshot --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
+moth sync --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
 ```
 
 `doctor` is kept as a compatibility alias, but `snapshot` is the primary
 machine-readable entrypoint.
+
+`sync` refreshes the repo's CodeGraph index first and then emits a payload with
+both the sync result and the latest snapshot.
 
 Exit codes are intentionally soft: `PASS` and `WARN` both exit `0`, and only
 `FAIL` exits non-zero. Warnings are carried in the JSON payload.

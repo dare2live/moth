@@ -148,3 +148,37 @@ def run_status(root: str | Path) -> dict[str, Any]:
         "verdict": verdict,
         **parsed,
     }
+
+
+def run_sync(root: str | Path) -> dict[str, Any]:
+    command = sync_command(root)
+    try:
+        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        returncode = completed.returncode
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+    except Exception as exc:  # pragma: no cover - defensive guard
+        return {
+            "command": command,
+            "returncode": 1,
+            "stdout": "",
+            "stderr": str(exc),
+            "verdict": "FAIL",
+            "issues": [f"codegraph sync failed: {exc}"],
+        }
+
+    issues: list[str] = []
+    if returncode != 0:
+        verdict = "FAIL"
+        issues.append(f"codegraph sync exited {returncode}")
+    else:
+        verdict = "PASS"
+
+    return {
+        "command": command,
+        "returncode": returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "verdict": verdict,
+        "issues": issues,
+    }
