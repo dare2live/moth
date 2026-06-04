@@ -20,6 +20,7 @@ class RepoProfile:
     complexity_command: list[str]
     complexity_baseline_path: Path | None = None
     evidence_paths: dict[str, Path] = field(default_factory=dict)
+    instruction_sources: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
 
 
@@ -54,6 +55,15 @@ def _load_evidence_paths(data: dict[str, Any], base: Path) -> dict[str, Path]:
     }
 
 
+def _load_instruction_sources(data: dict[str, Any]) -> dict[str, Any]:
+    """Preserve policy-source metadata as authored in the profile."""
+
+    raw = data.get("instruction_sources")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(label): value for label, value in raw.items()}
+
+
 def load_profile(ref: str | Path) -> RepoProfile:
     path = Path(ref)
     if not path.is_absolute():
@@ -72,6 +82,7 @@ def load_profile(ref: str | Path) -> RepoProfile:
         complexity_command=[str(part) for part in data.get("complexity_command", [])],
         complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
         evidence_paths=_load_evidence_paths(data, base),
+        instruction_sources=_load_instruction_sources(data),
         notes=str(data.get("notes", "")),
     )
 

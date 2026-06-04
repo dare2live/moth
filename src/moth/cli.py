@@ -127,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             "complexity_command": profile.complexity_command,
             "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
             "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
+            "instruction_sources": profile.instruction_sources,
             "notes": profile.notes,
         }
         if args.format == "markdown":

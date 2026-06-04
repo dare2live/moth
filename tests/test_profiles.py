@@ -18,6 +18,37 @@ def test_load_chunkymonkey_profile() -> None:
     )
 
 
+def test_load_profile_preserves_instruction_sources(tmp_path) -> None:
+    repo = tmp_path / "sample-repo"
+    repo.mkdir()
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                f"repo_path: {repo}",
+                "codegraph_root: .",
+                "complexity_command: []",
+                "instruction_sources:",
+                "  active:",
+                "    - AGENTS.md",
+                "    - docs/",
+                "  ignored_by_default:",
+                "    - CLAUDE.md",
+                "  legacy_exception: historical comparison only",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = load_profile(profile_path)
+
+    assert profile.instruction_sources["active"] == ["AGENTS.md", "docs/"]
+    assert profile.instruction_sources["ignored_by_default"] == ["CLAUDE.md"]
+    assert profile.instruction_sources["legacy_exception"] == "historical comparison only"
+
+
 def test_match_profile_by_repo_path() -> None:
     profile = match_profile("/Users/dp/Documents/M/stock/chunkymonkey")
     assert profile is not None

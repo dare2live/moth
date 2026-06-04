@@ -1,3 +1,5 @@
+import json
+
 import yaml
 
 from moth.cli import main
@@ -155,6 +157,37 @@ def test_profiles_emits_workspace_json(capsys, monkeypatch) -> None:
     assert code == 0
     assert '"workspace_root": "/tmp/workspace"' in captured.out
     assert '"workspace_profiles"' in captured.out
+
+
+def test_profile_emits_instruction_sources_json(tmp_path, capsys) -> None:
+    repo = tmp_path / "sample-repo"
+    repo.mkdir()
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                f"repo_path: {repo}",
+                "codegraph_root: .",
+                "complexity_command: []",
+                "instruction_sources:",
+                "  active:",
+                "    - AGENTS.md",
+                "  ignored_by_default:",
+                "    - CLAUDE.md",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    code = main(["profile", str(profile_path), "--format", "json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert code == 0
+    assert payload["instruction_sources"]["active"] == ["AGENTS.md"]
+    assert payload["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
 
 
 def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:

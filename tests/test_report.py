@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from moth import report as report_module
 from moth.profiles.loader import load_profile
 from moth.profiles.loader import RepoProfile
 
 
 def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
-    profile = load_profile("chunkymonkey")
+    base_profile = load_profile("chunkymonkey")
+    profile = RepoProfile(
+        kind=base_profile.kind,
+        name=base_profile.name,
+        repo_path=base_profile.repo_path,
+        codegraph_root=base_profile.codegraph_root,
+        complexity_command=base_profile.complexity_command,
+        complexity_baseline_path=base_profile.complexity_baseline_path,
+        evidence_paths=base_profile.evidence_paths,
+        instruction_sources={"active": ["AGENTS.md"], "ignored_by_default": ["CLAUDE.md"]},
+        notes=base_profile.notes,
+    )
 
     def fake_codegraph(root):
         return {
@@ -63,6 +76,7 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
     assert payload["codegraph"]["state"] == "NOT_INITIALIZED"
     assert payload["complexity"]["summary"]["finding_count"] == 1
     assert payload["complexity"]["baseline"]["status"] == "not_configured"
+    assert payload["profile"]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
     assert payload["warnings"]
 
 
@@ -222,6 +236,7 @@ def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
         codegraph_root=load_profile("chunkymonkey").codegraph_root,
         complexity_command=["python", "-m", "moth"],
         evidence_paths={},
+        instruction_sources={"active": ["AGENTS.md"], "ignored_by_default": ["CLAUDE.md"]},
         notes="ready",
     )
     profile_warn = RepoProfile(
@@ -251,4 +266,5 @@ def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
     assert payload["summary"]["workspace_pass_count"] == 0
     assert payload["summary"]["workspace_warn_count"] == 1
     assert payload["registry_profiles"][0]["status"] == "PASS"
+    assert payload["registry_profiles"][0]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
     assert payload["workspace_profiles"][0]["status"] == "WARN"

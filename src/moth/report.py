@@ -167,6 +167,7 @@ def _serialize_profile(profile: RepoProfile) -> dict[str, Any]:
         "complexity_command": profile.complexity_command,
         "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
         "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
+        "instruction_sources": profile.instruction_sources,
         "notes": profile.notes,
         "status": status,
         "issues": issues,
@@ -283,6 +284,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- Complexity baseline path: `{profile['complexity_baseline_path']}`")
     if profile.get("evidence_paths"):
         lines.extend(_render_mapping("Evidence paths", profile["evidence_paths"]))
+    if profile.get("instruction_sources"):
+        lines.extend(_render_mapping("Instruction sources", profile["instruction_sources"]))
     lines.append("")
     lines.extend(_render_list("Issues", report.get("issues") or []))
     lines.append("")
@@ -364,6 +367,8 @@ def render_profiles_markdown(report: dict[str, Any]) -> str:
             lines.append(f"  - CodeGraph root: `{item.get('codegraph_root', '?')}`")
             if item.get("complexity_baseline_path"):
                 lines.append(f"  - Complexity baseline: `{item['complexity_baseline_path']}`")
+            if item.get("instruction_sources"):
+                lines.append(f"  - Instruction sources: `{len(item['instruction_sources'])}`")
             if item.get("notes"):
                 lines.append(f"  - Notes: {item['notes']}")
             if item.get("issues"):

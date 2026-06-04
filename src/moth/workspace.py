@@ -32,6 +32,7 @@ def build_workspace_report(workspace_root: str) -> dict[str, Any]:
                     "complexity_baseline_path": str(getattr(profile, "complexity_baseline_path", None))
                     if getattr(profile, "complexity_baseline_path", None)
                     else None,
+                    "instruction_sources": getattr(profile, "instruction_sources", {}),
                 },
                 "snapshot": snapshot,
                 "status": snapshot.get("status", "UNKNOWN"),
@@ -107,6 +108,8 @@ def render_workspace_markdown(report: dict[str, Any]) -> str:
         lines.append(f"  - CodeGraph root: `{profile.get('codegraph_root', '?')}`")
         if profile.get("complexity_baseline_path"):
             lines.append(f"  - Complexity baseline: `{profile['complexity_baseline_path']}`")
+        if profile.get("instruction_sources"):
+            lines.append(f"  - Instruction sources: `{len(profile['instruction_sources'])}`")
         if snapshot.get("issues"):
             lines.append(f"  - Snapshot issues: {', '.join(snapshot['issues'])}")
         if snapshot.get("warnings"):

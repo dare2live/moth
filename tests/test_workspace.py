@@ -49,6 +49,7 @@ def test_build_workspace_report_includes_snapshots(monkeypatch) -> None:
             "name": "alpha",
             "repo_path": "/tmp/workspace/alpha",
             "codegraph_root": "/tmp/workspace/alpha",
+            "instruction_sources": {"active": ["AGENTS.md"], "ignored_by_default": ["CLAUDE.md"]},
         },
     )()
 
@@ -92,3 +93,4 @@ def test_build_workspace_report_includes_snapshots(monkeypatch) -> None:
     assert payload["summary"]["snapshot_total"] == 1
     assert payload["summary"]["snapshot_pass_count"] == 1
     assert payload["snapshots"][0]["profile"]["name"] == "alpha"
+    assert payload["snapshots"][0]["profile"]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]

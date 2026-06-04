@@ -10,7 +10,14 @@
       "enum": ["PASS", "WARN", "FAIL"]
     },
     "profile": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "instruction_sources": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
     },
     "issues": {
       "type": "array",
@@ -37,7 +44,6 @@
     "complexity": {
       "type": "object",
       "additionalProperties": true
-      }
     }
   },
   "additionalProperties": true
