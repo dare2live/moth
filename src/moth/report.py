@@ -46,10 +46,12 @@ def _warnings_from_codegraph(codegraph: dict[str, Any]) -> list[str]:
 
 def _warnings_from_complexity(complexity: dict[str, Any]) -> list[str]:
     diff = complexity.get("diff") or {}
-    if diff.get("status") == "compared" and int(diff.get("new_high_count") or 0):
-        return [
-            f"complexity new high findings: {diff.get('new_high_count')} (baseline compared)",
-        ]
+    if diff.get("status") == "compared":
+        if int(diff.get("new_high_count") or 0):
+            return [
+                f"complexity new high findings: {diff.get('new_high_count')} (baseline compared)",
+            ]
+        return []
     summary = complexity.get("summary") or {}
     finding_count = int(summary.get("finding_count") or 0)
     if not finding_count:
@@ -93,6 +95,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         complexity.get("findings") or [],
         baseline_findings,
         baseline_status=baseline_status,
+        repo_root=profile.repo_path,
     )
     complexity["baseline"] = {
         "path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
@@ -320,6 +323,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- New high findings: `{diff.get('new_high_count', 0)}`")
         lines.append(f"- New findings: `{diff.get('new_count', 0)}`")
         lines.append(f"- Resolved findings: `{diff.get('resolved_count', 0)}`")
+        if diff.get("note"):
+            lines.append(f"- Diff note: {diff.get('note')}")
     summary = complexity.get("summary") or {}
     lines.append(f"- Findings: `{summary.get('finding_count', 0)}`")
     if summary.get("severity_counts"):

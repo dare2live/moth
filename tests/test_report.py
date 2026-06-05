@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from moth.adapters.complexity import build_complexity_diff_report
 from moth import report as report_module
 from moth.profiles.loader import load_profile
 from moth.profiles.loader import RepoProfile
@@ -162,6 +163,176 @@ def test_build_report_warns_on_new_complexity_high_with_loaded_baseline(monkeypa
     assert payload["complexity"]["diff"]["new_high_count"] == 1
     assert any("complexity new high findings" in warning for warning in payload["warnings"])
     assert payload["issues"] == []
+
+
+def test_build_report_does_not_warn_on_unchanged_complexity_with_loaded_baseline(monkeypatch) -> None:
+    profile = load_profile("chunkymonkey")
+
+    def fake_codegraph(root):
+        return {
+            "command": ["codegraph", "status", str(root)],
+            "returncode": 0,
+            "stdout": "Index is up to date",
+            "stderr": "",
+            "verdict": "PASS",
+            "state": "UP_TO_DATE",
+            "index_up_to_date": True,
+            "issues": [],
+            "index_statistics": {},
+            "nodes_by_kind": {},
+            "files_by_language": {},
+        }
+
+    finding = {
+        "path": "src/stable.py",
+        "line": 12,
+        "severity": "high",
+        "kind": "nested-loop",
+        "message": "Nested loop may create O(n^2) or worse behavior.",
+        "suggestion": "Use an index.",
+    }
+
+    def fake_complexity(root, command):
+        return {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [finding],
+            "summary": {
+                "finding_count": 1,
+                "severity_counts": {"high": 1},
+                "kind_counts": {"nested-loop": 1},
+                "high_count": 1,
+                "medium_count": 0,
+                "info_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
+    monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([finding], "loaded"))
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+
+    payload = report_module.build_report(profile)
+
+    assert payload["status"] == "PASS"
+    assert payload["complexity"]["diff"]["status"] == "compared"
+    assert payload["complexity"]["diff"]["new_high_count"] == 0
+    assert payload["warnings"] == []
+    assert payload["issues"] == []
+
+
+def test_build_report_compares_disjoint_complexity_roots(monkeypatch) -> None:
+    profile = load_profile("chunkymonkey")
+
+    def fake_codegraph(root):
+        return {
+            "command": ["codegraph", "status", str(root)],
+            "returncode": 0,
+            "stdout": "Index is up to date",
+            "stderr": "",
+            "verdict": "PASS",
+            "state": "UP_TO_DATE",
+            "index_up_to_date": True,
+            "issues": [],
+            "index_statistics": {},
+            "nodes_by_kind": {},
+            "files_by_language": {},
+        }
+
+    def fake_complexity(root, command):
+        return {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [
+                {
+                    "path": "assets/js/app.js",
+                    "line": 12,
+                    "severity": "high",
+                    "kind": "nested-or-callback-loop",
+                    "message": "Loop or array iteration appears inside another loop/callback.",
+                    "suggestion": "Use an index.",
+                },
+            ],
+            "summary": {
+                "finding_count": 1,
+                "severity_counts": {"high": 1},
+                "kind_counts": {"nested-or-callback-loop": 1},
+                "high_count": 1,
+                "medium_count": 0,
+                "info_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
+    monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(
+        report_module,
+        "load_complexity_baseline",
+        lambda _path: (
+            [
+                {
+                    "path": "scripts/legacy.py",
+                    "line": 99,
+                    "severity": "HIGH",
+                    "kind": "nested-loop",
+                    "finding": "Nested loop may create O(n^2) or worse behavior.",
+                    "suggestion": "Use an index.",
+                }
+            ],
+            "loaded",
+        ),
+    )
+
+    payload = report_module.build_report(profile)
+    diff = payload["complexity"]["diff"]
+
+    assert payload["status"] == "WARN"
+    assert diff["status"] == "compared"
+    assert diff["new_high_count"] == 1
+    assert diff["new_count"] == 1
+    assert diff["resolved_count"] == 1
+    assert any("complexity new high findings" in warning for warning in payload["warnings"])
+    assert not any("complexity baseline incompatible" in warning for warning in payload["warnings"])
+    assert payload["issues"] == []
+
+
+def test_complexity_diff_normalizes_absolute_paths_against_repo_root() -> None:
+    diff = build_complexity_diff_report(
+        [
+            {
+                "path": "src/moth/report.py",
+                "line": 12,
+                "severity": "high",
+                "kind": "nested-loop",
+                "message": "Nested loop may create O(n^2) or worse behavior.",
+            }
+        ],
+        [
+            {
+                "path": "/Users/dp/Documents/M/moth/src/moth/report.py",
+                "line": 99,
+                "severity": "HIGH",
+                "kind": "nested-loop",
+                "finding": "Nested loop may create O(n^2) or worse behavior.",
+            }
+        ],
+        baseline_status="loaded",
+        repo_root="/Users/dp/Documents/M/moth",
+    )
+
+    assert diff["status"] == "compared"
+    assert diff["unchanged_count"] == 1
+    assert diff["new_count"] == 0
+    assert diff["resolved_count"] == 0
+    assert diff["new_high_count"] == 0
 
 
 def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:

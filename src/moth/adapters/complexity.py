@@ -43,12 +43,28 @@ def _counts(findings: list[dict[str, Any]], field: str) -> dict[str, int]:
     return dict(sorted(counter.items(), key=lambda item: (-item[1], item[0])))
 
 
-def _normalize_finding(raw: dict[str, Any]) -> dict[str, Any]:
+def _normalize_path(raw_path: Any, repo_root: str | Path | None = None) -> str:
+    text = str(raw_path or "").strip().replace("\\", "/")
+    if not text:
+        return ""
+    if repo_root:
+        try:
+            path = Path(text)
+            if path.is_absolute():
+                return path.resolve().relative_to(Path(repo_root).resolve()).as_posix()
+        except (OSError, ValueError):
+            pass
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _normalize_finding(raw: dict[str, Any], *, repo_root: str | Path | None = None) -> dict[str, Any]:
     message = raw.get("message") if raw.get("message") is not None else raw.get("finding")
     return {
         "severity": str(raw.get("severity") or "").strip().lower(),
         "kind": str(raw.get("kind") or "").strip(),
-        "path": str(raw.get("path") or "").strip(),
+        "path": _normalize_path(raw.get("path"), repo_root),
         "line": int(raw.get("line") or 0),
         "message": str(message or "").strip(),
         "suggestion": str(raw.get("suggestion") or "").strip(),
@@ -106,9 +122,10 @@ def build_complexity_diff_report(
     *,
     baseline_status: str,
     identity_mode: str = "path_kind_message",
+    repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    current = [_normalize_finding(item) for item in current_findings if isinstance(item, dict)]
-    baseline = [_normalize_finding(item) for item in baseline_findings if isinstance(item, dict)]
+    current = [_normalize_finding(item, repo_root=repo_root) for item in current_findings if isinstance(item, dict)]
+    baseline = [_normalize_finding(item, repo_root=repo_root) for item in baseline_findings if isinstance(item, dict)]
     if baseline_status != "loaded":
         return {
             "status": "baseline_unavailable",
