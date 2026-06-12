@@ -53,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     profiles_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
     profiles_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
+    assert_cmd = sub.add_parser("assert", help="Run only the profile's assertion packs (fast path)")
+    assert_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
+    assert_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
+    assert_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
     workspace_cmd = sub.add_parser("workspace", help="Inspect all repo-local profiles in a workspace")
     workspace_cmd.add_argument("--workspace", required=True, help="Workspace root to inspect")
     workspace_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
@@ -108,6 +113,30 @@ def _write_output(output_path: str | None, rendered: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.cmd == "assert":
+        from moth.checks.assertions import run_assertion_packs
+
+        profile = _resolve_profile(args.repo, args.profile)
+        outcome = run_assertion_packs(profile.assertion_packs, profile.repo_path)
+        if args.format == "json":
+            sys.stdout.write(render_json(outcome) + "\n")
+        else:
+            totals = outcome["totals"]
+            sys.stdout.write(
+                f"verdict={outcome['verdict']} pass={totals['pass']}"
+                f" fail={totals['fail']} error={totals['error']}\n"
+            )
+            for pack in outcome["packs"]:
+                for r in pack["results"]:
+                    if r["status"] != "pass":
+                        sys.stdout.write(
+                            f"[{r['status'].upper()}] {r['id']}: observed={r['observed']!r}"
+                            + (f" | {r['detail']}" if r["detail"] else "") + "\n"
+                        )
+            for issue in outcome["issues"]:
+                sys.stdout.write(f"[ISSUE] {issue}\n")
+        return 0 if outcome["verdict"] != "FAIL" else 1
 
     if args.cmd in {"doctor", "report", "snapshot"}:
         profile = _resolve_profile(args.repo, args.profile)
