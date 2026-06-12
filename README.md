@@ -88,3 +88,28 @@ Moth credits the workflow and tooling foundations of:
 - LifeHack governance patterns
 
 See `NOTICE.md` for the maintained attribution list.
+
+## Assertion packs (claims vs reality)
+
+Profiles may list `assertion_packs` — YAML files owned by the target repo that
+pin its load-bearing claims (doc numbers, schema counts, data-shape contracts)
+to executable read-only observations:
+
+```yaml
+# .moth/profile.yaml
+assertion_packs:
+  - .moth/assertions/claims.yaml
+```
+
+Every `moth doctor` / `snapshot` / `report` run executes the packs and folds
+failures into `issues` (overall status goes `FAIL`). Supported assertion
+types: `duckdb_sql` (always `read_only=True`; requires the `assertions`
+extra), `shell` (argv list, no shell, hard timeout), `file_size`,
+`file_exists`. Expectation ops: `==,!=,>=,<=,>,<,between,regex`.
+
+Design intent: codegraph/complexity audit the *shape* of code; assertion
+packs audit the seam where most real incidents live — drift between what the
+docs claim and what the data actually is (stale sizes, schema regressions,
+silent truncation, calendar clamps). The engine is generic and fail-closed
+(execution errors are failures, never skips); thresholds stay in the target
+repo per the operating rules.

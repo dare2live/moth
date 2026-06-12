@@ -21,6 +21,7 @@ class RepoProfile:
     complexity_baseline_path: Path | None = None
     evidence_paths: dict[str, Path] = field(default_factory=dict)
     instruction_sources: dict[str, Any] = field(default_factory=dict)
+    assertion_packs: list[Path] = field(default_factory=list)
     notes: str = ""
 
 
@@ -83,6 +84,7 @@ def load_profile(ref: str | Path) -> RepoProfile:
         complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
         evidence_paths=_load_evidence_paths(data, base),
         instruction_sources=_load_instruction_sources(data),
+        assertion_packs=[_resolve(base, item) for item in (data.get("assertion_packs") or [])],
         notes=str(data.get("notes", "")),
     )
 

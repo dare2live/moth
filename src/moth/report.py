@@ -9,6 +9,7 @@ from moth.adapters.codegraph import run_sync as run_codegraph_sync
 from moth.adapters.complexity import build_complexity_diff_report
 from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.adapters.complexity import load_complexity_baseline
+from moth.checks.assertions import run_assertion_packs
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.profiles.loader import RepoProfile
@@ -103,6 +104,8 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     }
     complexity["diff"] = complexity_diff
 
+    assertions = run_assertion_packs(profile.assertion_packs, profile.repo_path)
+
     warnings = []
     warnings.extend(_warnings_from_dirty(dirty))
     warnings.extend(_warnings_from_codegraph(codegraph))
@@ -112,6 +115,16 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         issues.extend(codegraph.get("issues") or ["codegraph status failed"])
     if complexity.get("verdict") == "FAIL":
         issues.extend(complexity.get("issues") or ["complexity analysis failed"])
+    if assertions["verdict"] == "FAIL":
+        issues.extend(assertions["issues"])
+        for pack in assertions["packs"]:
+            for result in pack["results"]:
+                if result["status"] != "pass":
+                    issues.append(
+                        f"assertion {result['status']}: [{pack['name']}] {result['id']}"
+                        f" observed={result['observed']!r}"
+                        + (f" ({result['detail']})" if result["detail"] else "")
+                    )
     status = "PASS"
     if issues:
         status = "FAIL"
@@ -128,6 +141,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         "dirty_worktree": dirty,
         "codegraph": _jsonable(codegraph),
         "complexity": _jsonable(complexity),
+        "assertions": _jsonable(assertions),
     }
 
 
@@ -334,6 +348,28 @@ def render_markdown(report: dict[str, Any]) -> str:
     if complexity.get("issues"):
         lines.extend(_render_list("Complexity issues", complexity["issues"]))
     lines.extend(_render_findings(complexity.get("findings") or []))
+    assertions = report.get("assertions") or {}
+    lines.append("")
+    lines.append("## Assertions (claims vs reality)")
+    lines.append(f"- Verdict: `{assertions.get('verdict', 'NONE')}`")
+    totals = assertions.get("totals") or {}
+    lines.append(
+        f"- Totals: pass `{totals.get('pass', 0)}` / fail `{totals.get('fail', 0)}`"
+        f" / error `{totals.get('error', 0)}`"
+    )
+    for pack in assertions.get("packs") or []:
+        lines.append(f"- Pack `{pack.get('name')}`: pass {pack.get('pass', 0)}"
+                     f" / fail {pack.get('fail', 0)} / error {pack.get('error', 0)}")
+        for result in pack.get("results") or []:
+            if result.get("status") != "pass":
+                lines.append(
+                    f"  - [{result.get('status').upper()}] {result.get('id')}:"
+                    f" {result.get('claim')} | observed={result.get('observed')!r}"
+                    f" expected={result.get('expected')}"
+                    + (f" | {result.get('detail')}" if result.get("detail") else "")
+                )
+    if assertions.get("issues"):
+        lines.extend(_render_list("Assertion issues", assertions["issues"]))
     return "\n".join(lines) + "\n"
 
 

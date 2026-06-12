@@ -18,6 +18,9 @@ def check_profile(profile: RepoProfile) -> list[str]:
     for label, path in profile.evidence_paths.items():
         if not Path(path).exists():
             issues.append(f"missing {label}: {path}")
+    for pack_path in profile.assertion_packs:
+        if not Path(pack_path).exists():
+            issues.append(f"missing assertion pack: {pack_path}")
     if not profile.complexity_command:
         issues.append("missing complexity command")
     return issues
