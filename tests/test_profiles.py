@@ -49,6 +49,24 @@ def test_load_profile_preserves_instruction_sources(tmp_path) -> None:
     assert profile.instruction_sources["legacy_exception"] == "historical comparison only"
 
 
+def test_relative_profile_path_resolves_against_cwd(tmp_path, monkeypatch) -> None:
+    # 回归 (lifehack 2026-06-14): `moth profile .moth/profile.yaml` 相对路径须相对 cwd 解析,
+    # 不是 moth 仓 ROOT (否则在别项目下读成 moth 自己的文件; 之前要用绝对路径才正常)。
+    repo = tmp_path / "other-project"
+    (repo / ".moth").mkdir(parents=True)
+    profile_path = default_profile_path(repo)
+    payload = build_profile_scaffold(
+        repo, name="other-project", complexity_command=["python", "-m", "moth"],
+        evidence_paths={"goal": "goal.md"}, notes="local",
+    )
+    write_profile_scaffold(profile_path, payload, force=True)
+
+    monkeypatch.chdir(repo)
+    profile = load_profile(".moth/profile.yaml")  # 相对路径
+    assert profile.name == "other-project"
+    assert profile.repo_path == repo.resolve()
+
+
 def test_match_profile_by_repo_path() -> None:
     profile = match_profile("/Users/dp/Documents/M/stock/chunkymonkey")
     assert profile is not None

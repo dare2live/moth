@@ -69,7 +69,10 @@ def load_profile(ref: str | Path) -> RepoProfile:
     path = Path(ref)
     if not path.is_absolute():
         if path.suffix:
-            path = (ROOT / path).resolve()
+            # 相对的文件路径 (e.g. `.moth/profile.yaml`) 相对**调用者 cwd** 解析,
+            # 不是 moth 仓 ROOT (修: 否则 `moth profile .moth/profile.yaml` 在别的项目下
+            # 会读成 moth 仓的同名文件, 须用绝对路径才正常 — lifehack 2026-06-14 反例)。
+            path = (Path.cwd() / path).resolve()
         else:
             path = (PROFILES_DIR / f"{path.name}.yaml").resolve()
     data = _load_yaml(path)
