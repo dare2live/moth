@@ -58,6 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
     assert_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
     assert_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
 
+    coupling_cmd = sub.add_parser("coupling", help="Coupling/orphan-ref check: --impact <name> 看删前 fan-in, 或扫孤儿引用")
+    coupling_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
+    coupling_cmd.add_argument("--impact", metavar="NAME", help="删 NAME (表名/文件名/标识符) 前看全 fan-in 爆炸半径")
+    coupling_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
     workspace_cmd = sub.add_parser("workspace", help="Inspect all repo-local profiles in a workspace")
     workspace_cmd.add_argument("--workspace", required=True, help="Workspace root to inspect")
     workspace_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
@@ -137,6 +142,18 @@ def main(argv: list[str] | None = None) -> int:
             for issue in outcome["issues"]:
                 sys.stdout.write(f"[ISSUE] {issue}\n")
         return 0 if outcome["verdict"] != "FAIL" else 1
+
+    if args.cmd == "coupling":
+        from moth.checks.coupling import impact, orphans, render_impact, render_orphans
+
+        repo = Path(args.repo).resolve()
+        if args.impact:
+            result = impact(repo, args.impact)
+            sys.stdout.write(render_json(result) + "\n" if args.format == "json" else render_impact(result))
+            return 0
+        result = orphans(repo)
+        sys.stdout.write(render_json(result) + "\n" if args.format == "json" else render_orphans(result))
+        return 0 if result["verdict"] != "FAIL" else 1
 
     if args.cmd in {"doctor", "report", "snapshot"}:
         profile = _resolve_profile(args.repo, args.profile)
