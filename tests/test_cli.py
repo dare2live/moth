@@ -5,7 +5,11 @@ import yaml
 from moth.cli import main
 
 
-def test_snapshot_emits_json_for_chunkymonkey(capsys) -> None:
+def test_snapshot_emits_json_for_chunkymonkey(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_snapshot",
+        lambda _profile: {"status": "PASS", "codegraph": {}, "complexity": {}, "issues": [], "warnings": []},
+    )
     code = main(["snapshot", "--repo", "/Users/dp/Documents/M/stock/chunkymonkey", "--profile", "chunkymonkey", "--format", "json"])
     captured = capsys.readouterr()
     assert code == 0
@@ -13,7 +17,11 @@ def test_snapshot_emits_json_for_chunkymonkey(capsys) -> None:
     assert '"complexity"' in captured.out
 
 
-def test_snapshot_writes_json_output(tmp_path, capsys) -> None:
+def test_snapshot_writes_json_output(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_snapshot",
+        lambda _profile: {"status": "PASS", "codegraph": {}, "complexity": {}, "issues": [], "warnings": []},
+    )
     output = tmp_path / "snapshot.json"
     code = main(
         [
@@ -35,20 +43,80 @@ def test_snapshot_writes_json_output(tmp_path, capsys) -> None:
     assert '"codegraph"' in output.read_text(encoding="utf-8")
 
 
-def test_doctor_passes_for_chunkymonkey(capsys) -> None:
+def test_doctor_passes_for_chunkymonkey(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_snapshot",
+        lambda _profile: {"status": "PASS", "codegraph": {}, "complexity": {}, "issues": [], "warnings": []},
+    )
     code = main(["doctor", "--repo", "/Users/dp/Documents/M/stock/chunkymonkey", "--profile", "chunkymonkey", "--format", "json"])
     captured = capsys.readouterr()
     assert code == 0
     assert '"warnings"' in captured.out
 
 
-def test_sync_emits_sync_and_snapshot_json(capsys) -> None:
+def test_sync_emits_sync_and_snapshot_json(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_sync_report",
+        lambda _profile: {
+            "schema_version": 1,
+            "generated_at": "2026-06-18T12:00:00Z",
+            "status": "PASS",
+            "sync": {},
+            "snapshot": {},
+            "issues": [],
+            "warnings": [],
+        },
+    )
     code = main(["sync", "--repo", "/Users/dp/Documents/M/stock/chunkymonkey", "--profile", "chunkymonkey", "--format", "json"])
     captured = capsys.readouterr()
     assert code == 0
     assert '"schema_version"' in captured.out
     assert '"sync"' in captured.out
     assert '"snapshot"' in captured.out
+
+
+def test_affected_emits_json(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_affected_report",
+        lambda profile, files, depth=5, test_filter=None: {
+            "schema_version": 1,
+            "generated_at": "2026-06-18T12:00:00Z",
+            "status": "PASS",
+            "profile": {"name": profile.name, "repo_path": str(profile.repo_path)},
+            "input_files": files,
+            "depth": depth,
+            "test_filter": test_filter,
+            "codegraph_affected": {
+                "verdict": "PASS",
+                "affectedTests": ["tests/test_example.py"],
+                "totalDependentsTraversed": 1,
+                "issues": [],
+            },
+            "complexity": {"verdict": "PASS", "summary": {"finding_count": 0}, "findings": []},
+            "issues": [],
+            "warnings": [],
+        },
+    )
+
+    code = main(
+        [
+            "affected",
+            "--repo",
+            "/Users/dp/Documents/M/stock/chunkymonkey",
+            "--profile",
+            "chunkymonkey",
+            "--file",
+            "src/new.py",
+            "--format",
+            "json",
+        ]
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert code == 0
+    assert payload["input_files"] == ["src/new.py"]
+    assert payload["codegraph_affected"]["affectedTests"] == ["tests/test_example.py"]
 
 
 def test_profiles_emits_json(capsys, monkeypatch) -> None:

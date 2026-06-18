@@ -68,7 +68,30 @@ def _normalize_finding(raw: dict[str, Any], *, repo_root: str | Path | None = No
         "line": int(raw.get("line") or 0),
         "message": str(message or "").strip(),
         "suggestion": str(raw.get("suggestion") or "").strip(),
+        "confidence": str(raw.get("confidence") or "").strip().lower(),
     }
+
+
+def _summary(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    severity_counts = _counts(findings, "severity")
+    kind_counts = _counts(findings, "kind")
+    confidence_counts = _counts(findings, "confidence")
+    return {
+        "finding_count": len(findings),
+        "severity_counts": severity_counts,
+        "kind_counts": kind_counts,
+        "confidence_counts": confidence_counts,
+        "high_count": severity_counts.get("high", 0),
+        "medium_count": severity_counts.get("medium", 0),
+        "info_count": severity_counts.get("info", 0),
+        "high_confidence_count": confidence_counts.get("high", 0),
+        "medium_confidence_count": confidence_counts.get("medium", 0),
+        "low_confidence_count": confidence_counts.get("low", 0),
+    }
+
+
+def _empty_summary() -> dict[str, Any]:
+    return _summary([])
 
 
 def load_complexity_baseline(path: Path | None) -> tuple[list[dict[str, Any]], str]:
@@ -204,14 +227,7 @@ def run_analysis(root: str | Path, command: Sequence[str]) -> dict[str, Any]:
             "verdict": "FAIL",
             "issues": [f"complexity analyzer failed: {exc}"],
             "findings": [],
-            "summary": {
-                "finding_count": 0,
-                "severity_counts": {},
-                "kind_counts": {},
-                "high_count": 0,
-                "medium_count": 0,
-                "info_count": 0,
-            },
+            "summary": _empty_summary(),
         }
     issues: list[str] = []
     findings: list[dict[str, Any]] = []
@@ -227,8 +243,6 @@ def run_analysis(root: str | Path, command: Sequence[str]) -> dict[str, Any]:
         else:
             verdict = "PASS"
 
-    severity_counts = _counts(findings, "severity")
-    kind_counts = _counts(findings, "kind")
     return {
         "command": normalized_command,
         "returncode": returncode,
@@ -237,12 +251,88 @@ def run_analysis(root: str | Path, command: Sequence[str]) -> dict[str, Any]:
         "verdict": verdict,
         "issues": issues,
         "findings": findings,
-        "summary": {
-            "finding_count": len(findings),
-            "severity_counts": severity_counts,
-            "kind_counts": kind_counts,
-            "high_count": severity_counts.get("high", 0),
-            "medium_count": severity_counts.get("medium", 0),
-            "info_count": severity_counts.get("info", 0),
-        },
+        "summary": _summary(findings),
+    }
+
+
+def _is_repo_root_arg(value: str, root: Path) -> bool:
+    if value in {".", str(root)}:
+        return True
+    try:
+        return Path(value).expanduser().resolve() == root
+    except (OSError, RuntimeError):
+        return False
+
+
+def command_for_target(root: str | Path, command: Sequence[str], target: str | Path) -> list[str]:
+    normalized_command = _force_json_format(command)
+    repo_root = Path(root).resolve()
+    target_text = str(Path(target))
+    for index, part in enumerate(normalized_command):
+        if _is_repo_root_arg(part, repo_root):
+            normalized_command[index] = target_text
+            return normalized_command
+    insert_at = len(normalized_command)
+    for option in ("--format", "-f"):
+        if option in normalized_command:
+            insert_at = min(insert_at, normalized_command.index(option))
+    normalized_command.insert(insert_at, target_text)
+    return normalized_command
+
+
+def run_analysis_for_paths(root: str | Path, command: Sequence[str], paths: Sequence[str | Path]) -> dict[str, Any]:
+    repo_root = Path(root).resolve()
+    files: list[dict[str, Any]] = []
+    all_findings: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for raw_path in paths:
+        target = Path(raw_path)
+        if not target.is_absolute():
+            target = repo_root / target
+        rel_path = _normalize_path(target, repo_root)
+        if not target.exists():
+            issue = f"complexity target missing: {rel_path}"
+            issues.append(issue)
+            files.append(
+                {
+                    "path": rel_path,
+                    "command": [],
+                    "returncode": 1,
+                    "verdict": "FAIL",
+                    "issues": [issue],
+                    "findings": [],
+                    "summary": _empty_summary(),
+                }
+            )
+            continue
+
+        result = run_analysis(repo_root, command_for_target(repo_root, command, target))
+        normalized_findings = [
+            _normalize_finding(finding, repo_root=repo_root)
+            for finding in result.get("findings") or []
+            if isinstance(finding, dict)
+        ]
+        all_findings.extend(normalized_findings)
+        file_issues = list(result.get("issues") or [])
+        if result.get("verdict") == "FAIL":
+            issues.extend(f"{rel_path}: {issue}" for issue in file_issues or ["complexity analysis failed"])
+        files.append(
+            {
+                "path": rel_path,
+                "command": result.get("command") or [],
+                "returncode": result.get("returncode", 0),
+                "verdict": result.get("verdict", "UNKNOWN"),
+                "issues": file_issues,
+                "findings": normalized_findings,
+                "summary": _summary(normalized_findings),
+            }
+        )
+
+    return {
+        "command_template": _force_json_format(command),
+        "verdict": "FAIL" if issues else "PASS",
+        "issues": issues,
+        "files": files,
+        "findings": all_findings,
+        "summary": _summary(all_findings),
     }

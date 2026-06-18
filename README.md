@@ -49,6 +49,8 @@ moth profiles --workspace /Users/dp/Documents/M --format json
 moth workspace --workspace /Users/dp/Documents/M --format json
 moth init --repo /Users/dp/Documents/M/stock/chunkymonkey --output /Users/dp/Documents/M/stock/chunkymonkey/.moth/profile.yaml
 moth sync --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
+moth affected --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey backend/foo.py --format json
+moth coupling --repo /Users/dp/Documents/M/stock/chunkymonkey --impact config/schema_registry.json --format markdown
 ```
 
 `doctor` is kept as a compatibility alias, but `snapshot` is the primary
@@ -60,10 +62,22 @@ other models can consume them without guessing the payload shape.
 `sync` refreshes the repo's CodeGraph index first and then emits a payload with
 both the sync result and the latest snapshot.
 
+`affected` combines CodeGraph `affected --json` with the profile's
+complexity command run against only the supplied changed files. It is intended
+for pre-review scoping: which tests are likely affected, and whether the files
+being changed introduce high-confidence complexity hotspots.
+
+`coupling` is the pre-delete/pre-rename safety rail. Plain `moth coupling`
+checks for orphan references, and the same orphan check is included in every
+`snapshot` / `doctor` / `report`. Use `moth coupling --impact <name-or-path>`
+before deleting or renaming tables, scripts, config keys, evidence paths, docs,
+or shared symbols; it reports fan-in by code/config/doc/test/CI/Moth/shell
+surface so callers can be migrated before removal.
+
 All report-style commands accept `--output <path>` to persist the rendered
 payload to disk while still writing the same content to stdout:
-`snapshot`, `doctor`, `report`, `profile`, `profiles`, `workspace`, and
-`sync`.
+`snapshot`, `doctor`, `report`, `profile`, `profiles`, `workspace`, `sync`,
+and `affected`.
 
 `profiles` lists the installed profile registry, and `--workspace` can scan a
 workspace tree for repo-local `.moth/profile.yaml` files so a fresh session can

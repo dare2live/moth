@@ -4,12 +4,15 @@ import json
 from dataclasses import asdict
 from typing import Any
 
+from moth.adapters.codegraph import run_affected as run_codegraph_affected
 from moth.adapters.codegraph import run_status as run_codegraph_status
 from moth.adapters.codegraph import run_sync as run_codegraph_sync
 from moth.adapters.complexity import build_complexity_diff_report
+from moth.adapters.complexity import run_analysis_for_paths as run_complexity_analysis_for_paths
 from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.adapters.complexity import load_complexity_baseline
 from moth.checks.assertions import run_assertion_packs
+from moth.checks.coupling import orphans as run_coupling_orphans
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.profiles.loader import RepoProfile
@@ -77,9 +80,13 @@ def _empty_complexity_report() -> dict[str, Any]:
             "finding_count": 0,
             "severity_counts": {},
             "kind_counts": {},
+            "confidence_counts": {},
             "high_count": 0,
             "medium_count": 0,
             "info_count": 0,
+            "high_confidence_count": 0,
+            "medium_confidence_count": 0,
+            "low_confidence_count": 0,
         },
     }
 
@@ -105,6 +112,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     complexity["diff"] = complexity_diff
 
     assertions = run_assertion_packs(profile.assertion_packs, profile.repo_path)
+    coupling = run_coupling_orphans(profile.repo_path)
 
     warnings = []
     warnings.extend(_warnings_from_dirty(dirty))
@@ -115,6 +123,8 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         issues.extend(codegraph.get("issues") or ["codegraph status failed"])
     if complexity.get("verdict") == "FAIL":
         issues.extend(complexity.get("issues") or ["complexity analysis failed"])
+    if coupling.get("verdict") == "FAIL":
+        issues.extend(coupling.get("fails") or ["coupling orphan check failed"])
     if assertions["verdict"] == "FAIL":
         issues.extend(assertions["issues"])
         for pack in assertions["packs"]:
@@ -141,6 +151,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         "dirty_worktree": dirty,
         "codegraph": _jsonable(codegraph),
         "complexity": _jsonable(complexity),
+        "coupling": _jsonable(coupling),
         "assertions": _jsonable(assertions),
     }
 
@@ -168,6 +179,68 @@ def build_sync_report(profile: RepoProfile) -> dict[str, Any]:
         "profile": snapshot["profile"],
         "sync": _jsonable(sync),
         "snapshot": snapshot,
+        "issues": issues,
+        "warnings": warnings,
+    }
+
+
+def build_affected_report(
+    profile: RepoProfile,
+    files: list[str],
+    *,
+    depth: int = 5,
+    test_filter: str | None = None,
+) -> dict[str, Any]:
+    codegraph = run_codegraph_affected(profile.codegraph_root, files, depth=depth, test_filter=test_filter)
+    if profile.complexity_command:
+        complexity = run_complexity_analysis_for_paths(profile.repo_path, profile.complexity_command, files)
+    else:
+        complexity = {
+            "command_template": [],
+            "verdict": "SKIP",
+            "issues": ["missing complexity command"],
+            "files": [],
+            "findings": [],
+            "summary": _empty_complexity_report()["summary"],
+        }
+
+    issues: list[str] = []
+    warnings: list[str] = []
+    if not files:
+        issues.append("no files supplied")
+    if codegraph.get("verdict") == "FAIL":
+        issues.extend(codegraph.get("issues") or ["codegraph affected failed"])
+    if complexity.get("verdict") == "FAIL":
+        issues.extend(complexity.get("issues") or ["complexity analysis failed"])
+
+    summary = complexity.get("summary") or {}
+    finding_count = int(summary.get("finding_count") or 0)
+    if finding_count:
+        severity_counts = summary.get("severity_counts") or {}
+        high = int(severity_counts.get("high") or 0)
+        medium = int(severity_counts.get("medium") or 0)
+        info = int(severity_counts.get("info") or 0)
+        warnings.append(
+            f"complexity hotspots in affected files: {finding_count} findings"
+            f" ({high} high, {medium} medium, {info} info)"
+        )
+
+    status = "PASS"
+    if issues:
+        status = "FAIL"
+    elif warnings:
+        status = "WARN"
+
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": utc_now_iso(),
+        "status": status,
+        "profile": _jsonable(asdict(profile)),
+        "input_files": files,
+        "depth": depth,
+        "test_filter": test_filter,
+        "codegraph_affected": _jsonable(codegraph),
+        "complexity": _jsonable(complexity),
         "issues": issues,
         "warnings": warnings,
     }
@@ -276,7 +349,9 @@ def _render_findings(findings: list[dict[str, Any]], limit: int = 5) -> list[str
         severity = str(finding.get("severity", "")).upper()
         kind = finding.get("kind", "finding")
         message = finding.get("message", "")
-        lines.append(f"- `{path}:{line}` [{severity}] {kind}: {message}")
+        confidence = finding.get("confidence")
+        confidence_note = f" confidence={confidence}" if confidence else ""
+        lines.append(f"- `{path}:{line}` [{severity}{confidence_note}] {kind}: {message}")
     if len(findings) > limit:
         lines.append(f"- ... {len(findings) - limit} more")
     return lines
@@ -309,6 +384,16 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.extend(_render_list("Warnings", report.get("warnings") or []))
     lines.append("")
     lines.extend(_render_list("Dirty worktree", report.get("dirty_worktree") or []))
+    lines.append("")
+    coupling = report.get("coupling") or {}
+    lines.append("## Coupling")
+    lines.append(f"- Verdict: `{coupling.get('verdict', 'UNKNOWN')}`")
+    lines.append(f"- Fails: `{len(coupling.get('fails') or [])}`")
+    lines.append(f"- Warns: `{len(coupling.get('warns') or [])}`")
+    if coupling.get("fails"):
+        lines.extend(_render_list("Coupling failures", coupling["fails"]))
+    if coupling.get("warns"):
+        lines.extend(_render_list("Coupling warnings", coupling["warns"]))
     lines.append("")
     codegraph = report.get("codegraph") or {}
     lines.append("## CodeGraph")
@@ -345,6 +430,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(_render_mapping("Severity counts", summary["severity_counts"]))
     if summary.get("kind_counts"):
         lines.extend(_render_mapping("Kind counts", summary["kind_counts"]))
+    if summary.get("confidence_counts"):
+        lines.extend(_render_mapping("Confidence counts", summary["confidence_counts"]))
     if complexity.get("issues"):
         lines.extend(_render_list("Complexity issues", complexity["issues"]))
     lines.extend(_render_findings(complexity.get("findings") or []))
@@ -415,6 +502,48 @@ def render_profiles_markdown(report: dict[str, Any]) -> str:
             if item.get("issues"):
                 lines.append(f"  - Issues: {', '.join(item['issues'])}")
         lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def render_affected_markdown(report: dict[str, Any]) -> str:
+    profile = report.get("profile") or {}
+    lines = [
+        "# Moth affected",
+        "",
+        f"- Schema version: `{report.get('schema_version', '?')}`",
+        f"- Generated at: `{report.get('generated_at', '?')}`",
+        f"- Status: `{report.get('status', '?')}`",
+        f"- Repo: `{profile.get('repo_path', '?')}`",
+        f"- Name: `{profile.get('name', '?')}`",
+        f"- Depth: `{report.get('depth', 5)}`",
+        "",
+    ]
+    lines.extend(_render_list("Input files", report.get("input_files") or []))
+    lines.append("")
+    lines.extend(_render_list("Issues", report.get("issues") or []))
+    lines.append("")
+    lines.extend(_render_list("Warnings", report.get("warnings") or []))
+    lines.append("")
+
+    affected = report.get("codegraph_affected") or {}
+    lines.append("## CodeGraph affected")
+    lines.append(f"- Verdict: `{affected.get('verdict', 'UNKNOWN')}`")
+    lines.append(f"- Dependents traversed: `{affected.get('totalDependentsTraversed', 0)}`")
+    lines.extend(_render_list("Affected tests", affected.get("affectedTests") or []))
+    if affected.get("issues"):
+        lines.extend(_render_list("CodeGraph affected issues", affected["issues"]))
+    lines.append("")
+
+    complexity = report.get("complexity") or {}
+    lines.append("## Complexity on affected files")
+    lines.append(f"- Verdict: `{complexity.get('verdict', 'UNKNOWN')}`")
+    summary = complexity.get("summary") or {}
+    lines.append(f"- Findings: `{summary.get('finding_count', 0)}`")
+    if summary.get("severity_counts"):
+        lines.extend(_render_mapping("Severity counts", summary["severity_counts"]))
+    if summary.get("confidence_counts"):
+        lines.extend(_render_mapping("Confidence counts", summary["confidence_counts"]))
+    lines.extend(_render_findings(complexity.get("findings") or []))
     return "\n".join(lines) + "\n"
 
 

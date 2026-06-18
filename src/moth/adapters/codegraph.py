@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,28 @@ def context_command(root: str | Path, query: str) -> list[str]:
 
 def query_command(root: str | Path, query: str) -> list[str]:
     return ["codegraph", "query", query, "--root", str(Path(root))]
+
+
+def affected_command(
+    root: str | Path,
+    files: list[str | Path],
+    *,
+    depth: int = 5,
+    test_filter: str | None = None,
+) -> list[str]:
+    command = [
+        "codegraph",
+        "affected",
+        "--path",
+        str(Path(root)),
+        "--depth",
+        str(depth),
+        "--json",
+    ]
+    if test_filter:
+        command.extend(["--filter", test_filter])
+    command.extend(str(file) for file in files)
+    return command
 
 
 def _strip_ansi(text: str) -> str:
@@ -181,4 +204,72 @@ def run_sync(root: str | Path) -> dict[str, Any]:
         "stderr": stderr,
         "verdict": verdict,
         "issues": issues,
+    }
+
+
+def run_affected(
+    root: str | Path,
+    files: list[str | Path],
+    *,
+    depth: int = 5,
+    test_filter: str | None = None,
+) -> dict[str, Any]:
+    command = affected_command(root, files, depth=depth, test_filter=test_filter)
+    if not files:
+        return {
+            "command": command,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "changedFiles": [],
+            "affectedTests": [],
+            "totalDependentsTraversed": 0,
+        }
+    try:
+        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        returncode = completed.returncode
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+    except Exception as exc:  # pragma: no cover - defensive guard
+        return {
+            "command": command,
+            "returncode": 1,
+            "stdout": "",
+            "stderr": str(exc),
+            "verdict": "FAIL",
+            "issues": [f"codegraph affected failed: {exc}"],
+            "changedFiles": [str(file) for file in files],
+            "affectedTests": [],
+            "totalDependentsTraversed": 0,
+        }
+
+    issues: list[str] = []
+    parsed: dict[str, Any] = {}
+    if returncode != 0:
+        verdict = "FAIL"
+        issues.append(f"codegraph affected exited {returncode}")
+    else:
+        try:
+            loaded = json.loads(stdout or "{}")
+            if not isinstance(loaded, dict):
+                raise ValueError("codegraph affected must emit a JSON object")
+            parsed = loaded
+        except Exception as exc:
+            verdict = "FAIL"
+            issues.append(f"failed to parse codegraph affected output: {exc}")
+        else:
+            verdict = "PASS"
+
+    return {
+        "command": command,
+        "returncode": returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "verdict": verdict,
+        "issues": issues,
+        "changedFiles": parsed.get("changedFiles", [str(file) for file in files]),
+        "affectedTests": parsed.get("affectedTests", []),
+        "totalDependentsTraversed": parsed.get("totalDependentsTraversed", 0),
     }

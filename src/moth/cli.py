@@ -11,8 +11,10 @@ from moth.profiles.scaffold import default_profile_path
 from moth.profiles.scaffold import parse_complexity_command
 from moth.profiles.scaffold import parse_evidence_paths
 from moth.profiles.scaffold import write_profile_scaffold
+from moth.report import build_affected_report
 from moth.report import build_profiles_report
 from moth.report import build_sync_report
+from moth.report import render_affected_markdown
 from moth.report import render_profiles_markdown
 from moth.snapshot import build_snapshot, render_json, render_markdown
 from moth.schema import SNAPSHOT_SCHEMA_VERSION
@@ -91,6 +93,16 @@ def build_parser() -> argparse.ArgumentParser:
     sync_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
     sync_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
     sync_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
+
+    affected_cmd = sub.add_parser("affected", help="Map changed files to affected tests and scoped complexity findings")
+    affected_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
+    affected_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
+    affected_cmd.add_argument("--file", action="append", default=[], help="Changed file path; may be repeated")
+    affected_cmd.add_argument("files", nargs="*", help="Changed file paths")
+    affected_cmd.add_argument("--depth", type=int, default=5, help="CodeGraph dependency traversal depth")
+    affected_cmd.add_argument("--test-filter", help="CodeGraph affected test glob filter")
+    affected_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
+    affected_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
     return parser
 
@@ -284,6 +296,15 @@ def main(argv: list[str] | None = None) -> int:
                     rendered += f"- {item}\n"
             rendered += "\n## Snapshot\n"
             rendered += render_markdown(payload["snapshot"])
+        _write_output(args.output, rendered)
+        sys.stdout.write(rendered)
+        return 0 if payload["status"] != "FAIL" else 1
+
+    if args.cmd == "affected":
+        profile = _resolve_profile(args.repo, args.profile)
+        files = [*args.file, *args.files]
+        payload = build_affected_report(profile, files, depth=args.depth, test_filter=args.test_filter)
+        rendered = render_json(payload) + "\n" if args.format == "json" else render_affected_markdown(payload)
         _write_output(args.output, rendered)
         sys.stdout.write(rendered)
         return 0 if payload["status"] != "FAIL" else 1

@@ -17,34 +17,71 @@ import re
 import subprocess
 from pathlib import Path
 
+import yaml
+
 _EXCLUDE_PARTS = (".venv", "__pycache__", ".git", "node_modules", ".pytest_cache", ".codegraph", "dist", "build")
-_SCAN_EXTS = (".py", ".yaml", ".yml", ".md", ".sh", ".toml", ".cfg")
+_SCAN_EXTS = (".py", ".yaml", ".yml", ".json", ".md", ".sh", ".toml", ".cfg")
 
 
 def _tracked_files(repo: Path) -> list[Path]:
-    """git-tracked files (回退到 glob); 排除 venv/缓存。"""
+    """Git-visible files (tracked + untracked, non-ignored); fallback to glob."""
     try:
-        out = subprocess.run(["git", "ls-files"], cwd=repo, capture_output=True, text=True, timeout=30).stdout
+        out = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout
         files = [repo / line for line in out.splitlines() if line]
         if files:
-            return [f for f in files if not any(p in f.parts for p in _EXCLUDE_PARTS)]
+            return [f for f in files if f.exists() and not any(p in f.parts for p in _EXCLUDE_PARTS)]
     except Exception:
         pass
     out = []
     for ext in _SCAN_EXTS:
         out += [Path(p) for p in glob.glob(str(repo / "**" / f"*{ext}"), recursive=True)]
-    return [f for f in out if not any(p in f.parts for p in _EXCLUDE_PARTS)]
+    return [f for f in out if f.exists() and not any(p in f.parts for p in _EXCLUDE_PARTS)]
+
+
+def _impact_terms(name: str) -> list[str]:
+    """Terms to search for fan-in.
+
+    Plain identifiers keep the historical stem behavior. Explicit path/file
+    inputs also search the path and basename, but avoid broad short stems such
+    as ``main`` from ``backend/main.py``.
+    """
+
+    normalized = name.strip().replace("\\", "/")
+    basename = normalized.split("/")[-1]
+    stem = basename.rsplit(".", 1)[0]
+    if "/" not in normalized and "." not in basename:
+        return [stem]
+    terms = [normalized, basename]
+    if len(stem) >= 6:
+        terms.append(stem)
+    return list(dict.fromkeys(term for term in terms if term))
+
+
+def _resolve_repo_path(repo: Path, value: object, *, base: Path | None = None) -> Path:
+    path = Path(str(value))
+    if path.is_absolute():
+        return path
+    return (base or repo) / path
 
 
 def impact(repo: Path, name: str) -> dict:
     """删 name 前的 fan-in (按文件类别分组)。name = 表名 / 文件名 basename / 标识符。"""
     stem = name.split("/")[-1].rsplit(".", 1)[0]
-    pat = re.compile(re.escape(stem))
+    terms = _impact_terms(name)
+    pat = re.compile("|".join(re.escape(term) for term in terms))
     cats: dict[str, list] = {"code": [], "config": [], "doc": [], "test": [], "ci": [], "moth": [], "shell": []}
     for f in _tracked_files(repo):
         if f.suffix not in _SCAN_EXTS:
             continue
         rel = f.relative_to(repo).as_posix()
+        if rel == name.replace("\\", "/"):
+            continue
         try:
             lines = f.read_text(encoding="utf-8", errors="ignore").splitlines()
         except OSError:
@@ -60,14 +97,20 @@ def impact(repo: Path, name: str) -> dict:
             cats["moth"].append((rel, hits))
         elif f.suffix == ".py":
             cats["code"].append((rel, hits))
-        elif f.suffix in (".yaml", ".yml", ".toml", ".cfg"):
+        elif f.suffix in (".yaml", ".yml", ".json", ".toml", ".cfg"):
             cats["config"].append((rel, hits))
         elif f.suffix == ".md":
             cats["doc"].append((rel, hits))
         elif f.suffix == ".sh":
             cats["shell"].append((rel, hits))
     total = sum(len(v) for v in cats.values())
-    return {"name": name, "stem": stem, "total_files": total, "categories": {k: v for k, v in cats.items() if v}}
+    return {
+        "name": name,
+        "stem": stem,
+        "query_terms": terms,
+        "total_files": total,
+        "categories": {k: v for k, v in cats.items() if v},
+    }
 
 
 def orphans(repo: Path) -> dict:
@@ -96,6 +139,38 @@ def orphans(repo: Path) -> dict:
         for ref in sorted(set(re.findall(r'((?:backend|src|scripts|analysis)/[\w/.-]+\.(?:py|sh|json|md|yaml))', ct))):
             if not _exists_rel(ref):
                 fails.append(f"T4 {crel} 引用不存在文件 {ref}")
+
+    # T4b: repo-local moth profile paths must point at real files/directories.
+    profile_path = repo / ".moth/profile.yaml"
+    if profile_path.exists():
+        try:
+            profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            fails.append(f"T4b .moth/profile.yaml 无法解析: {exc}")
+            profile = {}
+        if isinstance(profile, dict):
+            base = _resolve_repo_path(repo, profile.get("repo_path", repo))
+            path_fields = {
+                "repo_path": profile.get("repo_path"),
+                "codegraph_root": profile.get("codegraph_root"),
+                "complexity_baseline_path": profile.get("complexity_baseline_path"),
+            }
+            for field, value in path_fields.items():
+                if value in (None, ""):
+                    continue
+                path = _resolve_repo_path(repo, value, base=base)
+                if not path.exists():
+                    fails.append(f"T4b .moth/profile.yaml {field} 不存在: {value}")
+            evidence_paths = profile.get("evidence_paths") or {}
+            if isinstance(evidence_paths, dict):
+                for label, value in sorted(evidence_paths.items()):
+                    path = _resolve_repo_path(repo, value, base=base)
+                    if not path.exists():
+                        fails.append(f"T4b .moth/profile.yaml evidence_paths.{label} 不存在: {value}")
+            for ref in profile.get("assertion_packs") or []:
+                path = _resolve_repo_path(repo, ref, base=base)
+                if not path.exists():
+                    fails.append(f"T4b .moth/profile.yaml assertion_packs 引用不存在: {ref}")
 
     # T5: CI workflow 硬编码测试清单引用不存在的测试文件
     for wf in glob.glob(str(repo / ".github/workflows/*.yml")) + glob.glob(str(repo / ".github/workflows/*.yaml")):

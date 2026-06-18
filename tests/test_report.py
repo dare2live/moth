@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from moth.adapters.complexity import build_complexity_diff_report
 from moth import report as report_module
 from moth.profiles.loader import load_profile
 from moth.profiles.loader import RepoProfile
+
+
+@pytest.fixture(autouse=True)
+def _coupling_pass(monkeypatch) -> None:
+    monkeypatch.setattr(
+        report_module,
+        "run_coupling_orphans",
+        lambda _repo_path: {"verdict": "PASS", "fails": [], "warns": []},
+    )
 
 
 def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
@@ -68,6 +79,7 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
     monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
     monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
 
     payload = report_module.build_report(profile)
 
@@ -79,6 +91,57 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
     assert payload["complexity"]["baseline"]["status"] == "not_configured"
     assert payload["profile"]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
     assert payload["warnings"]
+
+
+def test_build_report_fails_on_coupling_orphans(monkeypatch) -> None:
+    profile = load_profile("chunkymonkey")
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+    monkeypatch.setattr(
+        report_module,
+        "run_codegraph_status",
+        lambda _root: {
+            "command": ["codegraph", "status"],
+            "returncode": 0,
+            "stdout": "Index is up to date",
+            "stderr": "",
+            "verdict": "PASS",
+            "state": "UP_TO_DATE",
+            "index_up_to_date": True,
+            "issues": [],
+            "index_statistics": {},
+            "nodes_by_kind": {},
+            "files_by_language": {},
+        },
+    )
+    monkeypatch.setattr(
+        report_module,
+        "run_complexity_analysis",
+        lambda _root, command: {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [],
+            "summary": {"finding_count": 0, "severity_counts": {}, "kind_counts": {}, "confidence_counts": {}},
+        },
+    )
+    monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
+    monkeypatch.setattr(
+        report_module,
+        "run_coupling_orphans",
+        lambda _repo_path: {"verdict": "FAIL", "fails": ["T4 missing file"], "warns": []},
+    )
+
+    payload = report_module.build_report(profile)
+    rendered = report_module.render_markdown(payload)
+
+    assert payload["status"] == "FAIL"
+    assert payload["coupling"]["verdict"] == "FAIL"
+    assert "T4 missing file" in payload["issues"]
+    assert "## Coupling" in rendered
 
 
 def test_build_report_warns_on_new_complexity_high_with_loaded_baseline(monkeypatch) -> None:
@@ -137,6 +200,7 @@ def test_build_report_warns_on_new_complexity_high_with_loaded_baseline(monkeypa
 
     monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
     monkeypatch.setattr(
         report_module,
         "load_complexity_baseline",
@@ -215,6 +279,7 @@ def test_build_report_does_not_warn_on_unchanged_complexity_with_loaded_baseline
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
     monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([finding], "loaded"))
     monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
 
     payload = report_module.build_report(profile)
 
@@ -273,6 +338,7 @@ def test_build_report_compares_disjoint_complexity_roots(monkeypatch) -> None:
 
     monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
     monkeypatch.setattr(
         report_module,
         "load_complexity_baseline",
@@ -387,6 +453,7 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
     monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
     monkeypatch.setattr(report_module, "git_status", lambda _repo_path: [])
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
 
     payload = report_module.build_sync_report(profile)
 
@@ -397,6 +464,71 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
     assert payload["snapshot"]["status"] == "PASS"
     assert payload["snapshot"]["dirty_worktree"] == []
     assert payload["warnings"] == []
+
+
+def test_build_affected_report_combines_codegraph_and_complexity(monkeypatch) -> None:
+    profile = load_profile("chunkymonkey")
+
+    def fake_affected(root, files, *, depth=5, test_filter=None):
+        return {
+            "command": ["codegraph", "affected", "--path", str(root), "--json", *files],
+            "returncode": 0,
+            "stdout": "{}",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "changedFiles": files,
+            "affectedTests": ["tests/test_example.py"],
+            "totalDependentsTraversed": 3,
+        }
+
+    def fake_complexity(root, command, files):
+        return {
+            "command_template": list(command),
+            "verdict": "PASS",
+            "issues": [],
+            "files": [
+                {
+                    "path": files[0],
+                    "verdict": "PASS",
+                    "issues": [],
+                    "findings": [],
+                    "summary": {"finding_count": 0, "severity_counts": {}, "confidence_counts": {}},
+                }
+            ],
+            "findings": [
+                {
+                    "path": files[0],
+                    "line": 7,
+                    "severity": "high",
+                    "kind": "nested-loop",
+                    "message": "Nested loop may create O(n^2) or worse behavior.",
+                    "suggestion": "Use an index.",
+                    "confidence": "high",
+                }
+            ],
+            "summary": {
+                "finding_count": 1,
+                "severity_counts": {"high": 1},
+                "kind_counts": {"nested-loop": 1},
+                "confidence_counts": {"high": 1},
+                "high_count": 1,
+                "medium_count": 0,
+                "info_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(report_module, "run_codegraph_affected", fake_affected)
+    monkeypatch.setattr(report_module, "run_complexity_analysis_for_paths", fake_complexity)
+
+    payload = report_module.build_affected_report(profile, ["src/new.py"])
+    rendered = report_module.render_affected_markdown(payload)
+
+    assert payload["status"] == "WARN"
+    assert payload["codegraph_affected"]["affectedTests"] == ["tests/test_example.py"]
+    assert payload["complexity"]["summary"]["confidence_counts"] == {"high": 1}
+    assert any("complexity hotspots in affected files" in warning for warning in payload["warnings"])
+    assert "Confidence counts" in rendered
 
 
 def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
