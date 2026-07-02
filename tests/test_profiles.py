@@ -80,6 +80,43 @@ def test_load_profile_expands_complexity_command_paths(tmp_path, monkeypatch) ->
     ]
 
 
+def test_load_profile_reads_complexity_ignored_path_parts(tmp_path) -> None:
+    repo = tmp_path / "sample-repo"
+    repo.mkdir()
+    default_profile = tmp_path / "default.yaml"
+    default_profile.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                f"repo_path: {repo}",
+                "codegraph_root: .",
+                "complexity_command: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    override_profile = tmp_path / "override.yaml"
+    override_profile.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                f"repo_path: {repo}",
+                "codegraph_root: .",
+                "complexity_command: []",
+                "complexity_ignored_path_parts:",
+                "  - vendored/",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    # 未配置 = None (report 层落到 DEFAULT_IGNORED_PATH_PARTS); 配置 = 覆盖。
+    assert load_profile(default_profile).complexity_ignored_path_parts is None
+    assert load_profile(override_profile).complexity_ignored_path_parts == ["vendored/"]
+
+
 def test_relative_profile_path_resolves_against_cwd(tmp_path, monkeypatch) -> None:
     # 回归 (lifehack 2026-06-14): `moth profile .moth/profile.yaml` 相对路径须相对 cwd 解析,
     # 不是 moth 仓 ROOT (否则在别项目下读成 moth 自己的文件; 之前要用绝对路径才正常)。

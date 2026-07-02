@@ -6,6 +6,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Sequence
 
+# 防御层: agent worktree 副本/依赖目录不算复杂度回归 (lifehack 实战: .claude/worktrees/
+# 里的 agent 副本被扫出 80 个假 new_high 拦 push)。run_analysis 不动 —— 外部
+# analyze_complexity.py 自有 --exclude; 本层保证即使外部扫了, diff 也不误报。
+DEFAULT_IGNORED_PATH_PARTS = (".claude/worktrees/", "node_modules/", ".venv", ".git/")
+
 
 def analyze_command(repo_path: str | Path, script_path: str | Path, *, format: str = "markdown") -> list[str]:
     return ["python", str(Path(script_path)), str(Path(repo_path)), "--format", format]
@@ -130,6 +135,12 @@ def _finding_identity(finding: dict[str, Any], mode: str) -> tuple[Any, ...]:
     )
 
 
+def _is_ignored_path(path: str, ignored_path_parts: Sequence[str]) -> bool:
+    if not path:
+        return False
+    return any(part and part in path for part in ignored_path_parts)
+
+
 def _finding_sort_key(finding: dict[str, Any]) -> tuple[Any, ...]:
     return (
         str(finding.get("path") or ""),
@@ -146,15 +157,21 @@ def build_complexity_diff_report(
     baseline_status: str,
     identity_mode: str = "path_kind_message",
     repo_root: str | Path | None = None,
+    ignored_path_parts: Sequence[str] = DEFAULT_IGNORED_PATH_PARTS,
 ) -> dict[str, Any]:
-    current = [_normalize_finding(item, repo_root=repo_root) for item in current_findings if isinstance(item, dict)]
-    baseline = [_normalize_finding(item, repo_root=repo_root) for item in baseline_findings if isinstance(item, dict)]
+    current_all = [_normalize_finding(item, repo_root=repo_root) for item in current_findings if isinstance(item, dict)]
+    baseline_all = [_normalize_finding(item, repo_root=repo_root) for item in baseline_findings if isinstance(item, dict)]
+    current = [item for item in current_all if not _is_ignored_path(item["path"], ignored_path_parts)]
+    baseline = [item for item in baseline_all if not _is_ignored_path(item["path"], ignored_path_parts)]
+    # no-silent: 被排除的 finding 数显式上报, 不静默消失。
+    ignored_count = (len(current_all) - len(current)) + (len(baseline_all) - len(baseline))
     if baseline_status != "loaded":
         return {
             "status": "baseline_unavailable",
             "baseline_status": baseline_status,
             "baseline_count": len(baseline),
             "current_count": len(current),
+            "ignored_count": ignored_count,
             "new_count": 0,
             "resolved_count": 0,
             "unchanged_count": 0,
@@ -193,6 +210,7 @@ def build_complexity_diff_report(
         "baseline_status": baseline_status,
         "baseline_count": len(baseline),
         "current_count": len(current),
+        "ignored_count": ignored_count,
         "new_count": len(new_findings),
         "resolved_count": len(resolved_findings),
         "unchanged_count": len(unchanged_findings),

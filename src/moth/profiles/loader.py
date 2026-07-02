@@ -20,6 +20,8 @@ class RepoProfile:
     codegraph_root: Path
     complexity_command: list[str]
     complexity_baseline_path: Path | None = None
+    # None = 用 adapters.complexity.DEFAULT_IGNORED_PATH_PARTS; [] = 不过滤 (显式关闭)。
+    complexity_ignored_path_parts: list[str] | None = None
     evidence_paths: dict[str, Path] = field(default_factory=dict)
     instruction_sources: dict[str, Any] = field(default_factory=dict)
     assertion_packs: list[Path] = field(default_factory=list)
@@ -70,6 +72,15 @@ def _expand_command_part(value: Any) -> str:
     return os.path.expandvars(os.path.expanduser(str(value)))
 
 
+def _load_ignored_path_parts(data: dict[str, Any]) -> list[str] | None:
+    raw = data.get("complexity_ignored_path_parts")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValueError("complexity_ignored_path_parts must be a list of path fragments")
+    return [str(item) for item in raw]
+
+
 def load_profile(ref: str | Path) -> RepoProfile:
     path = Path(ref)
     if not path.is_absolute():
@@ -90,6 +101,7 @@ def load_profile(ref: str | Path) -> RepoProfile:
         codegraph_root=_resolve(base, data["codegraph_root"]),
         complexity_command=[_expand_command_part(part) for part in data.get("complexity_command", [])],
         complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
+        complexity_ignored_path_parts=_load_ignored_path_parts(data),
         evidence_paths=_load_evidence_paths(data, base),
         instruction_sources=_load_instruction_sources(data),
         assertion_packs=[_resolve(base, item) for item in (data.get("assertion_packs") or [])],

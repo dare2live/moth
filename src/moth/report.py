@@ -99,11 +99,15 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     if profile.complexity_command:
         complexity = run_complexity_analysis(profile.repo_path, profile.complexity_command)
     baseline_findings, baseline_status = load_complexity_baseline(profile.complexity_baseline_path)
+    diff_kwargs: dict[str, Any] = {}
+    if profile.complexity_ignored_path_parts is not None:
+        diff_kwargs["ignored_path_parts"] = profile.complexity_ignored_path_parts
     complexity_diff = build_complexity_diff_report(
         complexity.get("findings") or [],
         baseline_findings,
         baseline_status=baseline_status,
         repo_root=profile.repo_path,
+        **diff_kwargs,
     )
     complexity["baseline"] = {
         "path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
@@ -422,6 +426,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- New high findings: `{diff.get('new_high_count', 0)}`")
         lines.append(f"- New findings: `{diff.get('new_count', 0)}`")
         lines.append(f"- Resolved findings: `{diff.get('resolved_count', 0)}`")
+        if diff.get("ignored_count"):
+            lines.append(f"- Ignored findings (path filter): `{diff.get('ignored_count')}`")
         if diff.get("note"):
             lines.append(f"- Diff note: {diff.get('note')}")
     summary = complexity.get("summary") or {}
