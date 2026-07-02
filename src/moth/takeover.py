@@ -87,6 +87,10 @@ def _run_section(section: dict[str, Any], repo: Path) -> dict[str, Any]:
     except subprocess.TimeoutExpired:
         out["detail"] = f"timeout after {timeout}s"
         return out
+    except OSError as exc:  # 命令不存在/不可执行 → fail-closed 记 FAIL, 不裸崩
+        # (2026-07-02 实证: lifehack takeover.yaml 引用已删除的 sherpa CLI → FileNotFoundError 崩整个 takeover)
+        out["detail"] = f"command not runnable: {exc}"
+        return out
     text = (result.stdout or "") + (("\n" + result.stderr) if result.stderr.strip() else "")
     text = text.strip()
     max_lines = int(section.get("max_lines", DEFAULT_MAX_LINES))
