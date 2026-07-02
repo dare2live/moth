@@ -27,6 +27,13 @@ If a repo keeps a complexity baseline JSON, profiles may also point at
 `complexity_baseline_path`. In that case Moth compares the current analyzer
 findings against the baseline and exposes the diff in the snapshot.
 
+The complexity diff excludes findings whose path contains any of the default
+ignored parts (`.claude/worktrees/`, `node_modules/`, `.venv`, `.git/`) so
+agent-worktree copies and vendored trees cannot fake `new_high` regressions;
+the excluded total is reported as `ignored_count` in the diff (never silently
+dropped). Profiles can override the list with `complexity_ignored_path_parts`
+(set `[]` to disable filtering).
+
 ## Local install
 
 Use a Python 3.11+ interpreter for the virtualenv. If your default `python3`
@@ -51,6 +58,9 @@ moth init --repo /Users/dp/Documents/M/stock/chunkymonkey --output /Users/dp/Doc
 moth sync --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
 moth affected --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey backend/foo.py --format json
 moth coupling --repo /Users/dp/Documents/M/stock/chunkymonkey --impact config/schema_registry.json --format markdown
+moth cycles --repo /Users/dp/Documents/M/lifehack --format markdown
+moth takeover --repo /Users/dp/Documents/M/lifehack
+moth gates --repo /Users/dp/Documents/M/lifehack my_experiment
 ```
 
 Moth expects the current CodeGraph CLI surface (`status --json`,
@@ -85,6 +95,34 @@ checks for orphan references, and the same orphan check is included in every
 before deleting or renaming tables, scripts, config keys, evidence paths, docs,
 or shared symbols; it reports fan-in by code/config/doc/test/CI/Moth/shell
 surface so callers can be migrated before removal.
+
+`cycles` detects import cycles (AST import graph + Tarjan SCC) inside a
+package. Configure it per profile; unconfigured repos are unaffected (SKIP):
+
+```yaml
+# .moth/profile.yaml
+import_cycles:
+  scan_paths: [backend/services, backend/api]
+  package_prefix: backend
+  allowlist_path: config/architecture_known_cycles.json  # optional
+```
+
+A detected cycle whose members are a subset of an allowlist entry is `known`;
+anything else is `new` and fails the check (and the overall `doctor` /
+`snapshot` report). A configured-but-missing/invalid allowlist is a FAIL, not
+a silent empty list.
+
+`takeover` is the first command of a new session: it runs the repo-owned
+takeover checklist (one read-only command + optional verdict regexes per
+section, fail-closed — non-zero exit / timeout / missing required pattern all
+FAIL) and prints a one-page verdict. `gates` runs an experiment's
+pre-registered go/no-go assertion pack (same schema as Moth assertion packs);
+any fail/error means NO-GO and exit 1. Both commands read the legacy
+`.sherpa/` layout first (`.sherpa/takeover.yaml`, `.sherpa/gates/<exp>.yaml`)
+and fall back to `.moth/`; existing sherpa-initialized repos need no
+migration. `moth init` scaffolds a starter `.moth/takeover.yaml` template
+alongside the profile. (Merged from the retired sibling tool `sherpa`,
+2026-07-02.)
 
 All report-style commands accept `--output <path>` to persist the rendered
 payload to disk while still writing the same content to stdout:
