@@ -60,6 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
     assert_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
     assert_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
 
+    complexity_cmd = sub.add_parser(
+        "complexity",
+        help="内建复杂度热点扫描 (vendored complexity-optimizer analyzer, 进程内, schema-frozen)",
+    )
+    complexity_cmd.add_argument("root", nargs="?", default=".", help="Repository or directory to scan.")
+    complexity_cmd.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    complexity_cmd.add_argument("--exclude", action="append", default=[], help="Additional directory name to exclude.")
+    complexity_cmd.add_argument("--max-findings", type=int, default=80)
+
     coupling_cmd = sub.add_parser("coupling", help="Coupling/orphan-ref check: --impact <name> 看删前 fan-in, 或扫孤儿引用")
     coupling_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
     coupling_cmd.add_argument("--impact", metavar="NAME", help="删 NAME (表名/文件名/标识符) 前看全 fan-in 爆炸半径")
@@ -168,6 +177,15 @@ def main(argv: list[str] | None = None) -> int:
             for issue in outcome["issues"]:
                 sys.stdout.write(f"[ISSUE] {issue}\n")
         return 0 if outcome["verdict"] != "FAIL" else 1
+
+    if args.cmd == "complexity":
+        from moth.analyzers.complexity import main as complexity_main
+
+        # 直接回灌 vendored 分析器的 main(argv), 保证 CLI 语义/输出与原脚本逐字节一致。
+        forwarded = [args.root, "--format", args.format, "--max-findings", str(args.max_findings)]
+        for item in args.exclude:
+            forwarded.extend(["--exclude", item])
+        return complexity_main(forwarded)
 
     if args.cmd == "coupling":
         from moth.checks.coupling import impact, orphans, render_impact, render_orphans
