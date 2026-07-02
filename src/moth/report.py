@@ -13,6 +13,7 @@ from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.adapters.complexity import load_complexity_baseline
 from moth.checks.assertions import run_assertion_packs
 from moth.checks.coupling import orphans as run_coupling_orphans
+from moth.checks.import_cycles import audit_import_cycles_for_profile
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.profiles.loader import RepoProfile
@@ -117,6 +118,11 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
 
     assertions = run_assertion_packs(profile.assertion_packs, profile.repo_path)
     coupling = run_coupling_orphans(profile.repo_path)
+    # 可选功能: profile 配置了 import_cycles 才跑, 未配置不惩罚 (SKIP)。
+    if profile.import_cycles:
+        import_cycles = audit_import_cycles_for_profile(profile)
+    else:
+        import_cycles = {"verdict": "SKIP", "note": "profile has no import_cycles config"}
 
     warnings = []
     warnings.extend(_warnings_from_dirty(dirty))
@@ -129,6 +135,8 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         issues.extend(complexity.get("issues") or ["complexity analysis failed"])
     if coupling.get("verdict") == "FAIL":
         issues.extend(coupling.get("fails") or ["coupling orphan check failed"])
+    if import_cycles.get("verdict") == "FAIL":
+        issues.extend(import_cycles.get("issues") or ["import cycle check failed"])
     if assertions["verdict"] == "FAIL":
         issues.extend(assertions["issues"])
         for pack in assertions["packs"]:
@@ -156,6 +164,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         "codegraph": _jsonable(codegraph),
         "complexity": _jsonable(complexity),
         "coupling": _jsonable(coupling),
+        "import_cycles": _jsonable(import_cycles),
         "assertions": _jsonable(assertions),
     }
 
@@ -399,6 +408,20 @@ def render_markdown(report: dict[str, Any]) -> str:
     if coupling.get("warns"):
         lines.extend(_render_list("Coupling warnings", coupling["warns"]))
     lines.append("")
+    import_cycles = report.get("import_cycles") or {}
+    if import_cycles:
+        lines.append("## Import cycles")
+        lines.append(f"- Verdict: `{import_cycles.get('verdict', 'UNKNOWN')}`")
+        if import_cycles.get("verdict") != "SKIP":
+            lines.append(
+                f"- Cycles: `{len(import_cycles.get('cycles') or [])}`"
+                f" (known {import_cycles.get('known_count', 0)} / new {import_cycles.get('new_count', 0)})"
+            )
+        if import_cycles.get("note"):
+            lines.append(f"- Note: {import_cycles['note']}")
+        if import_cycles.get("issues"):
+            lines.extend(_render_list("Import cycle issues", import_cycles["issues"]))
+        lines.append("")
     codegraph = report.get("codegraph") or {}
     lines.append("## CodeGraph")
     lines.append(f"- Verdict: `{codegraph.get('verdict', 'UNKNOWN')}`")

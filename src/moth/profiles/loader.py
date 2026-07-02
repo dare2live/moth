@@ -25,6 +25,8 @@ class RepoProfile:
     evidence_paths: dict[str, Path] = field(default_factory=dict)
     instruction_sources: dict[str, Any] = field(default_factory=dict)
     assertion_packs: list[Path] = field(default_factory=list)
+    # 可选 import-cycle 检查配置: {scan_paths: [], package_prefix: str, allowlist_path: str|None}
+    import_cycles: dict[str, Any] | None = None
     notes: str = ""
 
 
@@ -81,6 +83,15 @@ def _load_ignored_path_parts(data: dict[str, Any]) -> list[str] | None:
     return [str(item) for item in raw]
 
 
+def _load_import_cycles(data: dict[str, Any]) -> dict[str, Any] | None:
+    raw = data.get("import_cycles")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("import_cycles must be a mapping (scan_paths/package_prefix/allowlist_path)")
+    return {str(key): value for key, value in raw.items()}
+
+
 def load_profile(ref: str | Path) -> RepoProfile:
     path = Path(ref)
     if not path.is_absolute():
@@ -105,6 +116,7 @@ def load_profile(ref: str | Path) -> RepoProfile:
         evidence_paths=_load_evidence_paths(data, base),
         instruction_sources=_load_instruction_sources(data),
         assertion_packs=[_resolve(base, item) for item in (data.get("assertion_packs") or [])],
+        import_cycles=_load_import_cycles(data),
         notes=str(data.get("notes", "")),
     )
 

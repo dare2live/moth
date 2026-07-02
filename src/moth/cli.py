@@ -65,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     coupling_cmd.add_argument("--impact", metavar="NAME", help="删 NAME (表名/文件名/标识符) 前看全 fan-in 爆炸半径")
     coupling_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
 
+    cycles_cmd = sub.add_parser("cycles", help="Import-cycle check: 跑 profile 的 import_cycles 配置 (AST 图 + Tarjan SCC)")
+    cycles_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
+    cycles_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
+    cycles_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
     workspace_cmd = sub.add_parser("workspace", help="Inspect all repo-local profiles in a workspace")
     workspace_cmd.add_argument("--workspace", required=True, help="Workspace root to inspect")
     workspace_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
@@ -165,6 +170,25 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         result = orphans(repo)
         sys.stdout.write(render_json(result) + "\n" if args.format == "json" else render_orphans(result))
+        return 0 if result["verdict"] != "FAIL" else 1
+
+    if args.cmd == "cycles":
+        from moth.checks.import_cycles import audit_import_cycles_for_profile
+        from moth.checks.import_cycles import render_markdown as render_cycles_markdown
+
+        profile = _resolve_profile(args.repo, args.profile)
+        if not profile.import_cycles:
+            sys.stdout.write(
+                "profile 未配置 import_cycles — 在 profile YAML 加:\n"
+                "import_cycles:\n"
+                "  scan_paths: [backend/services, backend/api]\n"
+                "  package_prefix: backend\n"
+                "  allowlist_path: config/architecture_known_cycles.json  # 可选\n"
+            )
+            return 2
+        result = audit_import_cycles_for_profile(profile)
+        rendered = render_json(result) + "\n" if args.format == "json" else render_cycles_markdown(result)
+        sys.stdout.write(rendered)
         return 0 if result["verdict"] != "FAIL" else 1
 
     if args.cmd in {"doctor", "report", "snapshot"}:
