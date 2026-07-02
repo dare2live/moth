@@ -23,6 +23,39 @@ Profiles are intentionally lightweight: they point at evidence paths,
 codegraph roots, and optional complexity commands. The snapshot is the
 derived artifact; the source repos remain the truth source.
 
+## Built-in complexity analyzer
+
+Moth ships the complexity-optimizer hotspot scanner as a vendored module
+(`moth.analyzers.complexity`, schema-frozen 2026-07-02). Profiles without a
+`complexity_command` use it automatically, in-process — no external skill
+path or `npm install` required. The snapshot marks builtin runs with the
+command value `<builtin:moth.analyzers.complexity>`; the findings JSON schema
+(`path/line/severity/kind/message/suggestion/confidence`) and output are
+byte-compatible with the upstream script, so existing complexity baseline
+JSONs keep working unchanged.
+
+Run it standalone with:
+
+```bash
+moth complexity <path> [--exclude NAME ...] [--format json|markdown] [--max-findings N]
+```
+
+`--exclude` is repeatable and matches directory names (same semantics as the
+original script). In builtin mode a profile can express excludes directly:
+
+```yaml
+# .moth/profile.yaml
+complexity_excludes:
+  - .venv_scrape
+```
+
+`complexity_excludes` is consumed only in builtin mode; if the profile sets an
+explicit `complexity_command`, the option is ignored and `doctor` emits a
+warning note (put the excludes into the command's own `--exclude` flags
+instead). To keep using an external analyzer script, set `complexity_command`
+as before — explicit commands still run as subprocesses and win over the
+builtin.
+
 If a repo keeps a complexity baseline JSON, profiles may also point at
 `complexity_baseline_path`. In that case Moth compares the current analyzer
 findings against the baseline and exposes the diff in the snapshot.
@@ -57,6 +90,7 @@ moth workspace --workspace /Users/dp/Documents/M --format json
 moth init --repo /Users/dp/Documents/M/stock/chunkymonkey --output /Users/dp/Documents/M/stock/chunkymonkey/.moth/profile.yaml
 moth sync --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey --format json
 moth affected --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymonkey backend/foo.py --format json
+moth complexity /Users/dp/Documents/M/stock/chunkymonkey --exclude .venv_scrape --format json
 moth coupling --repo /Users/dp/Documents/M/stock/chunkymonkey --impact config/schema_registry.json --format markdown
 moth cycles --repo /Users/dp/Documents/M/lifehack --format markdown
 moth takeover --repo /Users/dp/Documents/M/lifehack
@@ -64,8 +98,9 @@ moth gates --repo /Users/dp/Documents/M/lifehack my_experiment
 ```
 
 Moth expects the current CodeGraph CLI surface (`status --json`,
-`affected --json`, `query --path`, `explore --path`). For complexity scanning,
-install or refresh the upstream skill with:
+`affected --json`, `query --path`, `explore --path`). Complexity scanning is
+built in (see above); installing the upstream skill is only needed if a
+profile pins an external `complexity_command`:
 
 ```bash
 npm install -g codex-complexity-optimizer
