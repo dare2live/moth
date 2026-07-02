@@ -4,7 +4,7 @@ repo_path: /absolute/path/to/repo
 codegraph_root: .
 complexity_command:
   - python
-  - /path/to/analyze_complexity.py
+  - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
   - /absolute/path/to/repo
   - --format
   - markdown

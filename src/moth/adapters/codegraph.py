@@ -16,7 +16,7 @@ _STATUS_NOT_INITIALIZED = "Not initialized"
 
 
 def status_command(root: str | Path) -> list[str]:
-    return ["codegraph", "status", str(Path(root))]
+    return ["codegraph", "status", str(Path(root)), "--json"]
 
 
 def sync_command(root: str | Path) -> list[str]:
@@ -24,11 +24,22 @@ def sync_command(root: str | Path) -> list[str]:
 
 
 def context_command(root: str | Path, query: str) -> list[str]:
-    return ["codegraph", "context", query, "--root", str(Path(root))]
+    return explore_command(root, query)
+
+
+def explore_command(root: str | Path, query: str, *, max_files: int | None = None) -> list[str]:
+    command = ["codegraph", "explore", query, "--path", str(Path(root))]
+    if max_files is not None:
+        command.extend(["--max-files", str(max_files)])
+    return command
 
 
 def query_command(root: str | Path, query: str) -> list[str]:
-    return ["codegraph", "query", query, "--root", str(Path(root))]
+    return ["codegraph", "query", query, "--path", str(Path(root))]
+
+
+def version_command() -> list[str]:
+    return ["codegraph", "version"]
 
 
 def affected_command(
@@ -63,6 +74,13 @@ def _parse_int(value: str) -> int:
 
 def _parse_status_output(stdout: str) -> dict[str, Any]:
     text = _strip_ansi(stdout)
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        loaded = None
+    if isinstance(loaded, dict):
+        return _parse_status_json(loaded, text)
+
     index_up_to_date = _STATUS_UP_TO_DATE in text
     state = "UNKNOWN"
     issues: list[str] = []
@@ -128,6 +146,77 @@ def _parse_status_output(stdout: str) -> dict[str, Any]:
         "nodes_by_kind": nodes_by_kind,
         "files_by_language": files_by_language,
         "rendered_stdout": text,
+    }
+
+
+def _int_from_json(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_status_json(payload: dict[str, Any], rendered_stdout: str) -> dict[str, Any]:
+    initialized = bool(payload.get("initialized"))
+    pending = payload.get("pendingChanges") if isinstance(payload.get("pendingChanges"), dict) else {}
+    pending_added = _int_from_json(pending.get("added"))
+    pending_modified = _int_from_json(pending.get("modified"))
+    pending_removed = _int_from_json(pending.get("removed"))
+    pending_total = pending_added + pending_modified + pending_removed
+    index_meta = payload.get("index") if isinstance(payload.get("index"), dict) else {}
+    reindex_recommended = bool(index_meta.get("reindexRecommended"))
+    worktree_mismatch = payload.get("worktreeMismatch")
+
+    issues: list[str] = []
+    if not initialized:
+        state = "NOT_INITIALIZED"
+        issues.append("codegraph not initialized")
+    elif worktree_mismatch:
+        state = "STALE"
+        issues.append(f"codegraph worktree mismatch: {worktree_mismatch}")
+    elif reindex_recommended:
+        state = "STALE"
+        issues.append("codegraph reindex recommended")
+    elif pending_total:
+        state = "STALE"
+        issues.append(
+            "codegraph pending changes: "
+            f"added={pending_added}, modified={pending_modified}, removed={pending_removed}"
+        )
+    else:
+        state = "UP_TO_DATE"
+
+    nodes_by_kind = payload.get("nodesByKind") if isinstance(payload.get("nodesByKind"), dict) else {}
+    languages = payload.get("languages") if isinstance(payload.get("languages"), list) else []
+    index_statistics = {
+        "files": _int_from_json(payload.get("fileCount")),
+        "nodes": _int_from_json(payload.get("nodeCount")),
+        "edges": _int_from_json(payload.get("edgeCount")),
+        "db_size_bytes": _int_from_json(payload.get("dbSizeBytes")),
+        "backend": payload.get("backend"),
+        "journal": payload.get("journalMode"),
+    }
+
+    return {
+        "index_up_to_date": state == "UP_TO_DATE",
+        "state": state,
+        "issues": issues,
+        "version": payload.get("version"),
+        "project_path": payload.get("projectPath"),
+        "index_path": payload.get("indexPath"),
+        "last_indexed": payload.get("lastIndexed"),
+        "pending_changes": {
+            "added": pending_added,
+            "modified": pending_modified,
+            "removed": pending_removed,
+        },
+        "worktree_mismatch": worktree_mismatch,
+        "index": index_meta,
+        "index_statistics": index_statistics,
+        "nodes_by_kind": {str(key): _int_from_json(value) for key, value in nodes_by_kind.items()},
+        "files_by_language": {},
+        "languages": [str(item) for item in languages],
+        "rendered_stdout": rendered_stdout,
     }
 
 

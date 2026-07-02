@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,10 @@ def _load_instruction_sources(data: dict[str, Any]) -> dict[str, Any]:
     return {str(label): value for label, value in raw.items()}
 
 
+def _expand_command_part(value: Any) -> str:
+    return os.path.expandvars(os.path.expanduser(str(value)))
+
+
 def load_profile(ref: str | Path) -> RepoProfile:
     path = Path(ref)
     if not path.is_absolute():
@@ -83,7 +88,7 @@ def load_profile(ref: str | Path) -> RepoProfile:
         name=str(data["name"]),
         repo_path=base,
         codegraph_root=_resolve(base, data["codegraph_root"]),
-        complexity_command=[str(part) for part in data.get("complexity_command", [])],
+        complexity_command=[_expand_command_part(part) for part in data.get("complexity_command", [])],
         complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
         evidence_paths=_load_evidence_paths(data, base),
         instruction_sources=_load_instruction_sources(data),

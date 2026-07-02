@@ -53,6 +53,18 @@ moth affected --repo /Users/dp/Documents/M/stock/chunkymonkey --profile chunkymo
 moth coupling --repo /Users/dp/Documents/M/stock/chunkymonkey --impact config/schema_registry.json --format markdown
 ```
 
+Moth expects the current CodeGraph CLI surface (`status --json`,
+`affected --json`, `query --path`, `explore --path`). For complexity scanning,
+install or refresh the upstream skill with:
+
+```bash
+npm install -g codex-complexity-optimizer
+```
+
+The official installer writes the analyzer under
+`${CODEX_HOME:-~/.codex}/skills/complexity-optimizer`; profile command entries
+may use `~` or environment variables, and Moth expands them before execution.
+
 `doctor` is kept as a compatibility alias, but `snapshot` is the primary
 machine-readable entrypoint.
 

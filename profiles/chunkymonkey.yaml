@@ -4,7 +4,7 @@ repo_path: /Users/dp/Documents/M/stock/chunkymonkey
 codegraph_root: .
 complexity_command:
   - python
-  - /Users/dp/.agents/skills/complexity-optimizer/scripts/analyze_complexity.py
+  - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
   - /Users/dp/Documents/M/stock/chunkymonkey
   - --format
   - markdown
