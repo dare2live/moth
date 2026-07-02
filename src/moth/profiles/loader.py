@@ -18,8 +18,12 @@ class RepoProfile:
     name: str
     repo_path: Path
     codegraph_root: Path
-    complexity_command: list[str]
+    # 可选: 缺省/空 = 内建模式 (进程内跑 moth.analyzers.complexity, 无外部脚本依赖)。
+    complexity_command: list[str] = field(default_factory=list)
     complexity_baseline_path: Path | None = None
+    # 仅内建模式消费的目录名排除 (拼进内建调用); 显式 complexity_command 模式忽略,
+    # doctor 会以 warning 提示。
+    complexity_excludes: list[str] = field(default_factory=list)
     # None = 用 adapters.complexity.DEFAULT_IGNORED_PATH_PARTS; [] = 不过滤 (显式关闭)。
     complexity_ignored_path_parts: list[str] | None = None
     evidence_paths: dict[str, Path] = field(default_factory=dict)
@@ -83,6 +87,15 @@ def _load_ignored_path_parts(data: dict[str, Any]) -> list[str] | None:
     return [str(item) for item in raw]
 
 
+def _load_complexity_excludes(data: dict[str, Any]) -> list[str]:
+    raw = data.get("complexity_excludes")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("complexity_excludes must be a list of directory names")
+    return [str(item) for item in raw]
+
+
 def _load_import_cycles(data: dict[str, Any]) -> dict[str, Any] | None:
     raw = data.get("import_cycles")
     if raw is None:
@@ -110,8 +123,9 @@ def load_profile(ref: str | Path) -> RepoProfile:
         name=str(data["name"]),
         repo_path=base,
         codegraph_root=_resolve(base, data["codegraph_root"]),
-        complexity_command=[_expand_command_part(part) for part in data.get("complexity_command", [])],
+        complexity_command=[_expand_command_part(part) for part in data.get("complexity_command") or []],
         complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
+        complexity_excludes=_load_complexity_excludes(data),
         complexity_ignored_path_parts=_load_ignored_path_parts(data),
         evidence_paths=_load_evidence_paths(data, base),
         instruction_sources=_load_instruction_sources(data),

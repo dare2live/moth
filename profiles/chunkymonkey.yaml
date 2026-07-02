@@ -2,12 +2,16 @@ kind: profile
 name: chunkymonkey
 repo_path: /Users/dp/Documents/M/stock/chunkymonkey
 codegraph_root: .
-complexity_command:
-  - python
-  - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
-  - /Users/dp/Documents/M/stock/chunkymonkey
-  - --format
-  - markdown
+# 缺省 = moth 内建分析器 (moth.analyzers.complexity, 进程内); 要用外部脚本再解开:
+# complexity_command:
+#   - python
+#   - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
+#   - /Users/dp/Documents/M/stock/chunkymonkey
+#   - --format
+#   - markdown
+# 内建模式的目录名排除 (显式 complexity_command 时忽略, doctor 会提示):
+# complexity_excludes:
+#   - .venv_scrape
 complexity_baseline_path: data/reports/tooling/complexity_baseline.json
 evidence_paths:
   agents: AGENTS.md

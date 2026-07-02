@@ -21,6 +21,5 @@ def check_profile(profile: RepoProfile) -> list[str]:
     for pack_path in profile.assertion_packs:
         if not Path(pack_path).exists():
             issues.append(f"missing assertion pack: {pack_path}")
-    if not profile.complexity_command:
-        issues.append("missing complexity command")
+    # 无 complexity_command 不再是问题: 缺省 = moth 内建分析器 (moth.analyzers.complexity)。
     return issues

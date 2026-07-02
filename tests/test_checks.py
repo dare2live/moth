@@ -21,3 +21,16 @@ def test_profile_checks_find_missing_placeholder_only_when_expected(tmp_path) ->
     )
     issues = check_profile(profile)
     assert issues == []
+
+
+def test_profile_without_complexity_command_is_not_an_issue(tmp_path) -> None:
+    # 缺省 = moth 内建分析器, 不再报 "missing complexity command"。
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    profile = RepoProfile(
+        kind="profile",
+        name="builtin-sample",
+        repo_path=repo,
+        codegraph_root=repo,
+    )
+    assert check_profile(profile) == []

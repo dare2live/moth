@@ -11,6 +11,49 @@ from typing import Any, Sequence
 # analyze_complexity.py 自有 --exclude; 本层保证即使外部扫了, diff 也不误报。
 DEFAULT_IGNORED_PATH_PARTS = (".claude/worktrees/", "node_modules/", ".venv", ".git/")
 
+# 内建模式 command 字段的可辨识标记 (profile 未配置 complexity_command 时进程内跑
+# vendored 分析器 moth.analyzers.complexity, 不再 subprocess 外部脚本)。
+BUILTIN_COMMAND_MARKER = "<builtin:moth.analyzers.complexity>"
+
+
+def _builtin_command(root: Path, excludes: Sequence[str]) -> list[str]:
+    command = [BUILTIN_COMMAND_MARKER, str(root), "--format", "json"]
+    for item in excludes:
+        command.extend(["--exclude", str(item)])
+    return command
+
+
+def _run_builtin(root: str | Path, excludes: Sequence[str]) -> dict[str, Any]:
+    from moth.analyzers.complexity import run as run_builtin_analyzer
+
+    root_path = Path(root)
+    command = _builtin_command(root_path, excludes)
+    try:
+        outcome = run_builtin_analyzer(root_path, excludes)
+    except Exception as exc:
+        return {
+            "command": command,
+            "returncode": 1,
+            "stdout": "",
+            "stderr": str(exc),
+            "verdict": "FAIL",
+            "issues": [f"complexity analyzer failed: {exc}"],
+            "findings": [],
+            "summary": _empty_summary(),
+        }
+    findings = [item for item in outcome.get("findings") or [] if isinstance(item, dict)]
+    return {
+        "command": command,
+        "returncode": 0,
+        # stdout 保持与外部脚本 --format json 打印一致, 下游读 stdout 的消费者不受影响。
+        "stdout": json.dumps(findings, indent=2) + "\n",
+        "stderr": "",
+        "verdict": "PASS",
+        "issues": [],
+        "findings": findings,
+        "summary": _summary(findings),
+    }
+
 
 def analyze_command(repo_path: str | Path, script_path: str | Path, *, format: str = "markdown") -> list[str]:
     return ["python", str(Path(script_path)), str(Path(repo_path)), "--format", format]
@@ -223,7 +266,16 @@ def build_complexity_diff_report(
     }
 
 
-def run_analysis(root: str | Path, command: Sequence[str]) -> dict[str, Any]:
+def run_analysis(
+    root: str | Path,
+    command: Sequence[str] | None = None,
+    *,
+    excludes: Sequence[str] = (),
+) -> dict[str, Any]:
+    # command 为 None/空 = 内建模式: 进程内跑 vendored 分析器, root 即扫描根。
+    # excludes 仅内建模式消费; 显式 command 自带 --exclude, 此参数被忽略。
+    if not command:
+        return _run_builtin(root, excludes)
     normalized_command = _force_json_format(command)
     try:
         completed = subprocess.run(
@@ -298,7 +350,13 @@ def command_for_target(root: str | Path, command: Sequence[str], target: str | P
     return normalized_command
 
 
-def run_analysis_for_paths(root: str | Path, command: Sequence[str], paths: Sequence[str | Path]) -> dict[str, Any]:
+def run_analysis_for_paths(
+    root: str | Path,
+    command: Sequence[str] | None,
+    paths: Sequence[str | Path],
+    *,
+    excludes: Sequence[str] = (),
+) -> dict[str, Any]:
     repo_root = Path(root).resolve()
     files: list[dict[str, Any]] = []
     all_findings: list[dict[str, Any]] = []
@@ -324,7 +382,12 @@ def run_analysis_for_paths(root: str | Path, command: Sequence[str], paths: Sequ
             )
             continue
 
-        result = run_analysis(repo_root, command_for_target(repo_root, command, target))
+        if command:
+            result = run_analysis(repo_root, command_for_target(repo_root, command, target))
+        else:
+            # 内建模式: 每个 target 作为扫描根 (与外部脚本被 command_for_target 指到
+            # target 的语义一致 —— 含单文件 target 扫不出内容的既有行为, 保持等价)。
+            result = run_analysis(target, None, excludes=excludes)
         normalized_findings = [
             _normalize_finding(finding, repo_root=repo_root)
             for finding in result.get("findings") or []
@@ -347,7 +410,7 @@ def run_analysis_for_paths(root: str | Path, command: Sequence[str], paths: Sequ
         )
 
     return {
-        "command_template": _force_json_format(command),
+        "command_template": _force_json_format(command) if command else _builtin_command(repo_root, excludes),
         "verdict": "FAIL" if issues else "PASS",
         "issues": issues,
         "files": files,

@@ -68,37 +68,26 @@ def _warnings_from_complexity(complexity: dict[str, Any]) -> list[str]:
     return [f"complexity hotspots: {finding_count} findings ({high} high, {medium} medium, {info} info)"]
 
 
-def _empty_complexity_report() -> dict[str, Any]:
-    return {
-        "command": [],
-        "returncode": 0,
-        "stdout": "",
-        "stderr": "",
-        "verdict": "SKIP",
-        "issues": ["missing complexity command"],
-        "findings": [],
-        "summary": {
-            "finding_count": 0,
-            "severity_counts": {},
-            "kind_counts": {},
-            "confidence_counts": {},
-            "high_count": 0,
-            "medium_count": 0,
-            "info_count": 0,
-            "high_confidence_count": 0,
-            "medium_confidence_count": 0,
-            "low_confidence_count": 0,
-        },
-    }
+def _complexity_excludes_warning(profile: RepoProfile) -> list[str]:
+    # doctor note: excludes 仅内建模式消费; 显式 command 自带 --exclude, 此配置被忽略。
+    if profile.complexity_command and profile.complexity_excludes:
+        return [
+            "complexity_excludes is ignored: profile sets an explicit complexity_command"
+            " (builtin-mode option; move the excludes into the command's --exclude flags)"
+        ]
+    return []
 
 
 def build_report(profile: RepoProfile) -> dict[str, Any]:
     issues = check_profile(profile)
     dirty = git_status(profile.repo_path)
     codegraph = run_codegraph_status(profile.codegraph_root)
-    complexity = _empty_complexity_report()
-    if profile.complexity_command:
-        complexity = run_complexity_analysis(profile.repo_path, profile.complexity_command)
+    # complexity_command 缺省 = 内建分析器 (moth.analyzers.complexity, 进程内)。
+    complexity = run_complexity_analysis(
+        profile.repo_path,
+        profile.complexity_command,
+        excludes=profile.complexity_excludes,
+    )
     baseline_findings, baseline_status = load_complexity_baseline(profile.complexity_baseline_path)
     diff_kwargs: dict[str, Any] = {}
     if profile.complexity_ignored_path_parts is not None:
@@ -128,6 +117,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     warnings.extend(_warnings_from_dirty(dirty))
     warnings.extend(_warnings_from_codegraph(codegraph))
     warnings.extend(_warnings_from_complexity(complexity))
+    warnings.extend(_complexity_excludes_warning(profile))
 
     if codegraph.get("verdict") == "FAIL":
         issues.extend(codegraph.get("issues") or ["codegraph status failed"])
@@ -205,17 +195,13 @@ def build_affected_report(
     test_filter: str | None = None,
 ) -> dict[str, Any]:
     codegraph = run_codegraph_affected(profile.codegraph_root, files, depth=depth, test_filter=test_filter)
-    if profile.complexity_command:
-        complexity = run_complexity_analysis_for_paths(profile.repo_path, profile.complexity_command, files)
-    else:
-        complexity = {
-            "command_template": [],
-            "verdict": "SKIP",
-            "issues": ["missing complexity command"],
-            "files": [],
-            "findings": [],
-            "summary": _empty_complexity_report()["summary"],
-        }
+    # complexity_command 缺省 = 内建分析器; excludes 仅内建模式消费。
+    complexity = run_complexity_analysis_for_paths(
+        profile.repo_path,
+        profile.complexity_command,
+        files,
+        excludes=profile.complexity_excludes,
+    )
 
     issues: list[str] = []
     warnings: list[str] = []
@@ -269,6 +255,7 @@ def _serialize_profile(profile: RepoProfile) -> dict[str, Any]:
         "codegraph_root": str(profile.codegraph_root),
         "complexity_command": profile.complexity_command,
         "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
+        "complexity_excludes": profile.complexity_excludes,
         "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
         "instruction_sources": profile.instruction_sources,
         "notes": profile.notes,

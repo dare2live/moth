@@ -16,6 +16,34 @@ def test_load_chunkymonkey_profile() -> None:
     assert profile.complexity_baseline_path == Path(
         "/Users/dp/Documents/M/stock/chunkymonkey/data/reports/tooling/complexity_baseline.json"
     )
+    # complexity_command 已注释掉 → 内建分析器模式。
+    assert profile.complexity_command == []
+    assert profile.complexity_excludes == []
+
+
+def test_load_profile_without_complexity_command_defaults_to_builtin(tmp_path) -> None:
+    repo = tmp_path / "sample-repo"
+    repo.mkdir()
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                f"repo_path: {repo}",
+                "codegraph_root: .",
+                "complexity_excludes:",
+                "  - .venv_scrape",
+                "  - fixtures",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = load_profile(profile_path)
+
+    assert profile.complexity_command == []
+    assert profile.complexity_excludes == [".venv_scrape", "fixtures"]
 
 
 def test_load_profile_preserves_instruction_sources(tmp_path) -> None:

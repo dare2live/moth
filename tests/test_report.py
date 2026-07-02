@@ -48,7 +48,7 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
             "files_by_language": {},
         }
 
-    def fake_complexity(root, command):
+    def fake_complexity(root, command, **_kwargs):
         return {
             "command": list(command),
             "returncode": 0,
@@ -117,7 +117,7 @@ def test_build_report_fails_on_coupling_orphans(monkeypatch) -> None:
     monkeypatch.setattr(
         report_module,
         "run_complexity_analysis",
-        lambda _root, command: {
+        lambda _root, command, **_kwargs: {
             "command": list(command),
             "returncode": 0,
             "stdout": "[]",
@@ -162,7 +162,7 @@ def test_build_report_warns_on_new_complexity_high_with_loaded_baseline(monkeypa
             "files_by_language": {},
         }
 
-    def fake_complexity(root, command):
+    def fake_complexity(root, command, **_kwargs):
         return {
             "command": list(command),
             "returncode": 0,
@@ -256,7 +256,7 @@ def test_build_report_does_not_warn_on_unchanged_complexity_with_loaded_baseline
         "suggestion": "Use an index.",
     }
 
-    def fake_complexity(root, command):
+    def fake_complexity(root, command, **_kwargs):
         return {
             "command": list(command),
             "returncode": 0,
@@ -308,7 +308,7 @@ def test_build_report_compares_disjoint_complexity_roots(monkeypatch) -> None:
             "files_by_language": {},
         }
 
-    def fake_complexity(root, command):
+    def fake_complexity(root, command, **_kwargs):
         return {
             "command": list(command),
             "returncode": 0,
@@ -429,7 +429,7 @@ def test_build_sync_report_combines_sync_and_snapshot(monkeypatch) -> None:
             "files_by_language": {},
         }
 
-    def fake_complexity(root, command):
+    def fake_complexity(root, command, **_kwargs):
         return {
             "command": list(command),
             "returncode": 0,
@@ -482,7 +482,7 @@ def test_build_affected_report_combines_codegraph_and_complexity(monkeypatch) ->
             "totalDependentsTraversed": 3,
         }
 
-    def fake_complexity(root, command, files):
+    def fake_complexity(root, command, files, **_kwargs):
         return {
             "command_template": list(command),
             "verdict": "PASS",
@@ -571,3 +571,76 @@ def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
     assert payload["registry_profiles"][0]["status"] == "PASS"
     assert payload["registry_profiles"][0]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
     assert payload["workspace_profiles"][0]["status"] == "WARN"
+
+
+def _fake_codegraph_pass(root):
+    return {
+        "command": ["codegraph", "status", str(root)],
+        "returncode": 0,
+        "stdout": "Index is up to date",
+        "stderr": "",
+        "verdict": "PASS",
+        "state": "UP_TO_DATE",
+        "index_up_to_date": True,
+        "issues": [],
+        "index_statistics": {},
+        "nodes_by_kind": {},
+        "files_by_language": {},
+    }
+
+
+def test_build_report_uses_builtin_analyzer_when_no_command(tmp_path, monkeypatch) -> None:
+    # profile 未配置 complexity_command → 内建分析器真跑 (进程内), 不 SKIP 不 FAIL。
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "hot.py").write_text(
+        "for x in xs:\n    for y in ys:\n        total = x + y\n", encoding="utf-8"
+    )
+    profile = RepoProfile(kind="profile", name="builtin-sample", repo_path=repo, codegraph_root=repo)
+    monkeypatch.setattr(report_module, "run_codegraph_status", _fake_codegraph_pass)
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+
+    payload = report_module.build_report(profile)
+
+    assert payload["complexity"]["verdict"] == "PASS"
+    assert payload["complexity"]["command"][0] == "<builtin:moth.analyzers.complexity>"
+    assert payload["complexity"]["summary"]["finding_count"] >= 1
+    assert payload["complexity"]["baseline"]["status"] == "not_configured"
+    # startup check 不再把缺 complexity_command 当问题。
+    assert payload["issues"] == []
+    assert any("complexity hotspots" in warning for warning in payload["warnings"])
+    assert payload["status"] == "WARN"
+
+
+def test_build_report_notes_ignored_excludes_with_explicit_command(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    profile = RepoProfile(
+        kind="profile",
+        name="explicit-sample",
+        repo_path=repo,
+        codegraph_root=repo,
+        complexity_command=["python", "/tool/scanner.py", str(repo), "--format", "markdown"],
+        complexity_excludes=[".venv_scrape"],
+    )
+    monkeypatch.setattr(report_module, "run_codegraph_status", _fake_codegraph_pass)
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+    monkeypatch.setattr(
+        report_module,
+        "run_complexity_analysis",
+        lambda _root, command, **_kwargs: {
+            "command": list(command),
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [],
+            "summary": {"finding_count": 0, "severity_counts": {}, "kind_counts": {}, "confidence_counts": {}},
+        },
+    )
+
+    payload = report_module.build_report(profile)
+
+    assert any("complexity_excludes is ignored" in warning for warning in payload["warnings"])
+    assert payload["status"] == "WARN"

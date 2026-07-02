@@ -2,12 +2,16 @@ kind: template
 name: example
 repo_path: /absolute/path/to/repo
 codegraph_root: .
-complexity_command:
-  - python
-  - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
-  - /absolute/path/to/repo
-  - --format
-  - markdown
+# 缺省 = moth 内建分析器 (moth.analyzers.complexity, 进程内); 要用外部脚本再解开:
+# complexity_command:
+#   - python
+#   - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
+#   - /absolute/path/to/repo
+#   - --format
+#   - markdown
+# 内建模式的目录名排除 (显式 complexity_command 时忽略, doctor 会提示):
+# complexity_excludes:
+#   - .venv_scrape
 evidence_paths:
   goal: goal.md
   handoff: SESSION_HANDOFF.md
