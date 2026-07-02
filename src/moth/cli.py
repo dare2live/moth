@@ -109,6 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
     affected_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
     affected_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
 
+    takeover_cmd = sub.add_parser("takeover", help="接手对账: 跑 .sherpa/takeover.yaml (兼容) 或 .moth/takeover.yaml 清单出单页 verdict")
+    takeover_cmd.add_argument("--repo", required=True, help="目标 repo 路径")
+    takeover_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
+    gates_cmd = sub.add_parser("gates", help="实验 go/no-go: 跑 .sherpa/gates/<experiment>.yaml (兼容) 或 .moth/gates/<experiment>.yaml")
+    gates_cmd.add_argument("--repo", required=True, help="目标 repo 路径")
+    gates_cmd.add_argument("experiment", nargs="?", help="实验名; 缺省列出全部 gate 包")
+    gates_cmd.add_argument("--format", choices=("markdown", "json"), default="markdown")
+
     return parser
 
 
@@ -190,6 +199,44 @@ def main(argv: list[str] | None = None) -> int:
         rendered = render_json(result) + "\n" if args.format == "json" else render_cycles_markdown(result)
         sys.stdout.write(rendered)
         return 0 if result["verdict"] != "FAIL" else 1
+
+    if args.cmd == "takeover":
+        from moth.takeover import find_checklist, load_checklist, run_takeover
+        from moth.takeover import render_markdown as render_takeover_markdown
+
+        repo = Path(args.repo).resolve()
+        checklist_path = find_checklist(repo)
+        if checklist_path is None:
+            sys.stdout.write(f"未找到 takeover 清单: {repo}/.sherpa/takeover.yaml 或 {repo}/.moth/takeover.yaml\n")
+            sys.stdout.write("先初始化: moth init --repo <path> (顺带生成 .moth/takeover.yaml 模板, 按本仓实情编辑)\n")
+            return 2
+        checklist = load_checklist(checklist_path)
+        outcome = run_takeover(checklist, repo)
+        sys.stdout.write(
+            render_json(outcome) + "\n" if args.format == "json" else render_takeover_markdown(outcome)
+        )
+        return 0 if outcome["overall"] != "FAIL" else 1
+
+    if args.cmd == "gates":
+        from moth.gates import list_gates, run_gate
+        from moth.gates import render_markdown as render_gate_markdown
+
+        repo = Path(args.repo).resolve()
+        if not args.experiment:
+            gates = list_gates(repo)
+            sys.stdout.write("可用 gate 包:\n" if gates else "无 gate 包 (.sherpa/gates/*.yaml 或 .moth/gates/*.yaml)\n")
+            for name in gates:
+                sys.stdout.write(f"  - {name}\n")
+            return 0
+        try:
+            outcome = run_gate(repo, args.experiment)
+        except FileNotFoundError as exc:
+            sys.stdout.write(f"{exc}\n")
+            return 2
+        sys.stdout.write(
+            render_json(outcome) + "\n" if args.format == "json" else render_gate_markdown(outcome)
+        )
+        return 0 if outcome["go"] else 1
 
     if args.cmd in {"doctor", "report", "snapshot"}:
         profile = _resolve_profile(args.repo, args.profile)
@@ -274,12 +321,17 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stdout.write("\n## Issues\n")
                 sys.stdout.write(f"- {exc}\n")
             return 1
+        from moth.takeover_scaffold import init_takeover
+
+        # 顺带生成 takeover 清单模板 (幂等: 已存在不覆盖) — moth takeover 的起点。
+        takeover_created = init_takeover(repo_path, name=args.name)
         result = {
             "schema_version": SNAPSHOT_SCHEMA_VERSION,
             "generated_at": utc_now_iso(),
             "status": "PASS",
             "output_path": str(written),
             "profile": payload,
+            "takeover_scaffold": takeover_created,
             "issues": [],
             "warnings": [],
         }
@@ -290,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(f"- Status: `PASS`\n")
             sys.stdout.write(f"- Output path: `{written}`\n")
             sys.stdout.write(f"- Profile: `{payload['name']}`\n")
+            if takeover_created:
+                sys.stdout.write(f"- Takeover scaffold: `{takeover_created[0]}`\n")
             if payload.get("complexity_command"):
                 sys.stdout.write(f"- Complexity command: `{shlex.join(payload['complexity_command'])}`\n")
             if payload.get("evidence_paths"):
