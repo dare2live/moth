@@ -49,7 +49,7 @@ stages:
       - docs/compatibility-matrix.yaml
       - docs/migration-next.md
     residual:
-      - 提交后激活当前 Moth 插件 cachebuster 并重跑新任务前向验收
+      - 提交通用 stdout transport 修复并重跑无绕路的新任务前向验收
   - id: stage_1
     title: 统一项目模型
     state: COMPLETE
@@ -164,6 +164,7 @@ stages:
       - THIRD_PARTY_NOTICES.md
       - pyproject.toml
       - src/moth/tool_installations.py
+      - src/moth/output_transport.py
       - plugins/moth/.codex-plugin/plugin.json
       - plugins/moth/skills/moth/SKILL.md
       - plugins/moth/skills/moth/scripts/make_activation_receipts.py
@@ -171,4 +172,4 @@ stages:
       - docs/migration-next.md
       - tests/test_moth_plugin_receipts.py
     residual:
-      - 将已安装 Moth 插件从上一 cachebuster 对齐到当前候选并重跑新任务
+      - 提交通用 stdout transport 修复并重跑无绕路的新任务

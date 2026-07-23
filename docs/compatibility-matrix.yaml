@@ -82,8 +82,7 @@ components:
     authority: current Codex Skill catalog and activation receipt digest
   moth-plugin:
     role: single_user_facing_entry
-    observed_version: 1.0.0+codex.20260723113302
-    candidate_version: 1.0.0+codex.20260723115614
+    observed_version: 1.0.0+codex.20260723115614
     version_constraint: null
     required_capabilities:
       - inspect_json
@@ -91,4 +90,5 @@ components:
       - guidance_plan
       - guidance_application
       - change_safety
+      - stdin_stdout_transport
     authority: plugin validators and fresh-task forward test

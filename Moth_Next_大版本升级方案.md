@@ -1593,11 +1593,13 @@ executor contract 的遥测才能把上下文判为 `READY`；
   探针的统一配置；任何 `version_constraint` 均为空，数字只作本轮证据；
 - Omen 通过 Homebrew stable 核验为 4.25.0，CodeGraph 从 1.2.0 更新至 1.5.0，
   Codex CLI 从 0.142.4 更新至 0.145.0；每次更新后均重跑实际能力和输出合同；
-- Moth 包元数据与模块版本已对齐为 1.0.0，已生成新的本地 marketplace cachebuster
-  候选；Rule 10 提交后再激活并做全新任务验收；wheel 已核验包含所有
-  Architecture、Change Safety、Guidance Application policy 与 Schema；
-- 全新只读 Codex 任务只调用 `$moth` 即完成 Guidance 加载与工具检查；receipt helper
-  同时支持文件与 stdin/stdout 流，严格只读 sandbox 不再依赖 `/tmp` 写权限；
+- Moth 包元数据与模块版本已对齐为 1.0.0，本地 marketplace 插件已激活
+  `1.0.0+codex.20260723115614`；wheel 已核验包含所有 Architecture、
+  Change Safety、Guidance Application policy 与 Schema；
+- 全新只读 Codex 任务只调用 `$moth` 即完成 Guidance 加载与工具检查，并暴露出
+  CLI 曾把 `--output -` 误当文件名；现由独立 `output_transport` 模块统一
+  stdout sentinel，receipt helper 同时支持文件与 stdin/stdout 流，严格只读
+  sandbox 不再依赖 `/tmp` 写权限；
 - 回滚规则保留上一观测版本/插件缓存；若新版本能力探针失败则恢复上一运行时并保持
   兼容性失败，不能通过削弱合同或设永久版本天花板来“修绿”。
 

@@ -31,6 +31,7 @@ from moth.workspace import build_workspace_report
 from moth.workspace import render_workspace_markdown
 from moth.visual_model import build_visual_model
 from moth.visual_model import validate_visual_document_schema, validate_visual_model
+from moth.output_transport import OUTPUT_TARGET_HELP, persist_optional_output
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,35 +77,35 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--test-filter")
     inspect.add_argument("--baseline-digest")
     inspect.add_argument("--format", choices=("markdown", "json", "html"), default="json")
-    inspect.add_argument("--output")
+    inspect.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     snapshot = sub.add_parser("snapshot", help="Emit a machine-readable repo snapshot")
     snapshot.add_argument("--repo", required=True, help="Repo path to inspect")
     snapshot.add_argument("--profile", help="Explicit profile name or YAML path")
     snapshot.add_argument("--format", choices=("markdown", "json"), default="json")
-    snapshot.add_argument("--output", help="Optional file path to persist the rendered payload")
+    snapshot.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     doctor = sub.add_parser("doctor", help="Validate a repo profile and emit a summary")
     doctor.add_argument("--repo", required=True, help="Repo path to inspect")
     doctor.add_argument("--profile", help="Explicit profile name or YAML path")
     doctor.add_argument("--format", choices=("markdown", "json"), default="markdown")
-    doctor.add_argument("--output", help="Optional file path to persist the rendered payload")
+    doctor.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     report = sub.add_parser("report", help="Render a report for a repo profile")
     report.add_argument("--repo", required=True, help="Repo path to inspect")
     report.add_argument("--profile", help="Explicit profile name or YAML path")
     report.add_argument("--format", choices=("markdown", "json"), default="markdown")
-    report.add_argument("--output", help="Optional file path to persist the rendered payload")
+    report.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     profile_cmd = sub.add_parser("profile", help="Show a profile")
     profile_cmd.add_argument("ref", help="Profile name or YAML path")
     profile_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
-    profile_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
+    profile_cmd.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     profiles_cmd = sub.add_parser("profiles", help="List available profiles")
     profiles_cmd.add_argument("--workspace", help="Workspace root to discover repo-local profiles")
     profiles_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
-    profiles_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
+    profiles_cmd.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     assert_cmd = sub.add_parser("assert", help="Run only the profile's assertion packs (fast path)")
     assert_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
@@ -133,7 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     workspace_cmd = sub.add_parser("workspace", help="Inspect all repo-local profiles in a workspace")
     workspace_cmd.add_argument("--workspace", required=True, help="Workspace root to inspect")
     workspace_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
-    workspace_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
+    workspace_cmd.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     init_cmd = sub.add_parser("init", help="Create a repo-local moth profile scaffold")
     init_cmd.add_argument("--repo", required=True, help="Repo path to scaffold")
@@ -157,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
     sync_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
     sync_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
-    sync_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
+    sync_cmd.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     affected_cmd = sub.add_parser("affected", help="Map changed files to affected tests and scoped complexity findings")
     affected_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
@@ -167,7 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
     affected_cmd.add_argument("--depth", type=int, default=5, help="CodeGraph dependency traversal depth")
     affected_cmd.add_argument("--test-filter", help="CodeGraph affected test glob filter")
     affected_cmd.add_argument("--format", choices=("markdown", "json"), default="json")
-    affected_cmd.add_argument("--output", help="Optional file path to persist the rendered payload")
+    affected_cmd.add_argument("--output", help=OUTPUT_TARGET_HELP)
 
     takeover_cmd = sub.add_parser("takeover", help="接手对账: 跑 .sherpa/takeover.yaml (兼容) 或 .moth/takeover.yaml 清单出单页 verdict")
     takeover_cmd.add_argument("--repo", required=True, help="目标 repo 路径")
@@ -214,11 +215,7 @@ def _render_mapping_block(mapping: dict[str, object]) -> list[str]:
 
 
 def _write_output(output_path: str | None, rendered: str) -> None:
-    if not output_path:
-        return
-    path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rendered, encoding="utf-8")
+    persist_optional_output(output_path, rendered)
 
 
 def main(argv: list[str] | None = None) -> int:
