@@ -41,15 +41,14 @@ global_gates:
 stages:
   - id: stage_0
     title: 本机现状审计
-    state: PARTIAL
+    state: COMPLETE
     evidence:
       - Moth_Next_大版本升级方案.md
       - src/moth/guidance.py
       - docs/major-upgrade-ledger.yaml
       - docs/compatibility-matrix.yaml
       - docs/migration-next.md
-    residual:
-      - 提交通用 stdout transport 修复并重跑无绕路的新任务前向验收
+    residual: []
   - id: stage_1
     title: 统一项目模型
     state: COMPLETE
@@ -159,7 +158,7 @@ stages:
     residual: []
   - id: stage_8
     title: 工具和上游管理
-    state: PARTIAL
+    state: COMPLETE
     evidence:
       - THIRD_PARTY_NOTICES.md
       - pyproject.toml
@@ -171,5 +170,4 @@ stages:
       - docs/compatibility-matrix.yaml
       - docs/migration-next.md
       - tests/test_moth_plugin_receipts.py
-    residual:
-      - 提交通用 stdout transport 修复并重跑无绕路的新任务
+    residual: []

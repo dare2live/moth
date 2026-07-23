@@ -1599,7 +1599,8 @@ executor contract 的遥测才能把上下文判为 `READY`；
 - 全新只读 Codex 任务只调用 `$moth` 即完成 Guidance 加载与工具检查，并暴露出
   CLI 曾把 `--output -` 误当文件名；现由独立 `output_transport` 模块统一
   stdout sentinel，receipt helper 同时支持文件与 stdin/stdout 流，严格只读
-  sandbox 不再依赖 `/tmp` 写权限；
+  sandbox 不再依赖 `/tmp` 写权限；提交后再次前向验收，首尾检查都强制使用
+  `--output -`，结果 `stream_transport_succeeded=true`、`bypass_used=false`；
 - 回滚规则保留上一观测版本/插件缓存；若新版本能力探针失败则恢复上一运行时并保持
   兼容性失败，不能通过削弱合同或设永久版本天花板来“修绿”。
 
