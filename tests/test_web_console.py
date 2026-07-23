@@ -3,6 +3,7 @@ from threading import BoundedSemaphore
 from wsgiref.util import setup_testing_defaults
 
 import json
+import os
 import subprocess
 import pytest
 import yaml
@@ -13,6 +14,10 @@ from moth.cli import main
 from moth.inspection import sanitize_public_text
 from moth.web_app import create_web_application
 from moth.web_config import load_web_console_config
+from moth.web_server import serve_web_console
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write_config(path: Path, payload: dict) -> Path:
@@ -389,17 +394,159 @@ def test_web_assets_are_exact_packaged_routes_and_use_safe_dom(tmp_path) -> None
 
 
 def test_cli_serve_delegates_to_web_server(monkeypatch) -> None:
-    seen: list[str] = []
+    seen: list[tuple[str, bool]] = []
     monkeypatch.setattr(
         "moth.cli.serve_web_console",
-        lambda config_path: seen.append(config_path) or 0,
+        lambda config_path, *, open_browser=False: seen.append(
+            (config_path, open_browser)
+        )
+        or 0,
     )
 
-    assert main(["serve", "--config", "custom-web.yaml"]) == 0
-    assert seen == ["custom-web.yaml"]
+    assert main(
+        ["serve", "--config", "custom-web.yaml", "--open-browser"]
+    ) == 0
+    assert seen == [("custom-web.yaml", True)]
 
 
-def test_init_can_idempotently_register_project_for_web_selector(tmp_path, capsys) -> None:
+def test_serve_can_open_authenticated_url_after_binding(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = _write_config(
+        tmp_path / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [{"id": "repo", "name": "Repo", "repo": "repo"}],
+        },
+    )
+    events: list[tuple[str, str]] = []
+
+    class FakeServer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+    def fake_make_server(host, port, _app, **_kwargs):
+        events.append(("bound", f"{host}:{port}"))
+        return FakeServer()
+
+    def fake_open(url):
+        events.append(("opened", url))
+        return True
+
+    monkeypatch.setattr("moth.web_server.make_server", fake_make_server)
+    monkeypatch.setattr("moth.web_server.open_capability_url", fake_open)
+
+    assert serve_web_console(config_path, open_browser=True) == 0
+    assert events[0] == ("bound", "127.0.0.1:8765")
+    assert events[1][0] == "opened"
+    assert events[1][1].startswith("http://127.0.0.1:8765/#token=")
+
+
+def test_macos_browser_launcher_keeps_capability_out_of_process_args(
+    monkeypatch,
+) -> None:
+    from moth.browser_launcher import open_capability_url
+
+    capability_url = "http://127.0.0.1:8765/#token=super-secret"
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("moth.browser_launcher.sys.platform", "darwin")
+    monkeypatch.setattr("moth.browser_launcher.subprocess.run", fake_run)
+
+    assert open_capability_url(capability_url) is True
+    command, kwargs = calls[0]
+    assert command == ["/usr/bin/osascript"]
+    assert "super-secret" not in " ".join(command)
+    assert capability_url in kwargs["input"]
+
+
+def test_browser_launcher_fails_soft_without_a_safe_platform_adapter(
+    monkeypatch,
+) -> None:
+    from moth.browser_launcher import open_capability_url
+
+    monkeypatch.setattr("moth.browser_launcher.sys.platform", "linux")
+
+    def unexpected_run(*_args, **_kwargs):
+        raise AssertionError("unsupported platforms must not launch a process")
+
+    monkeypatch.setattr("moth.browser_launcher.subprocess.run", unexpected_run)
+
+    assert (
+        open_capability_url("http://127.0.0.1:8765/#token=super-secret")
+        is False
+    )
+    assert open_capability_url("https://example.com/#token=super-secret") is False
+
+
+def test_browser_launcher_process_failure_is_nonfatal(monkeypatch) -> None:
+    from moth.browser_launcher import open_capability_url
+
+    monkeypatch.setattr("moth.browser_launcher.sys.platform", "darwin")
+
+    def failed_run(*_args, **_kwargs):
+        raise OSError("browser unavailable")
+
+    monkeypatch.setattr("moth.browser_launcher.subprocess.run", failed_run)
+
+    assert (
+        open_capability_url("http://127.0.0.1:8765/#token=super-secret")
+        is False
+    )
+
+
+def test_cli_serve_reports_port_occupied(monkeypatch, capsys) -> None:
+    def occupied(_config_path, *, open_browser=False):
+        raise OSError("Address already in use")
+
+    monkeypatch.setattr("moth.cli.serve_web_console", occupied)
+
+    assert main(["serve", "--open-browser"]) == 1
+    assert "Address already in use" in capsys.readouterr().err
+
+
+def test_start_command_uses_project_environment_and_opens_browser(tmp_path) -> None:
+    source = PROJECT_ROOT / "start.command"
+    assert source.is_file()
+    assert os.access(source, os.X_OK)
+
+    sandbox = tmp_path / "moth"
+    binary = sandbox / ".venv" / "bin" / "moth"
+    binary.parent.mkdir(parents=True)
+    binary.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\"\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o700)
+    launcher = sandbox / "start.command"
+    launcher.write_bytes(source.read_bytes())
+    launcher.chmod(0o700)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    completed = subprocess.run(
+        [str(launcher)],
+        cwd=elsewhere,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert completed.stdout.splitlines() == ["serve", "--open-browser"]
+
+
+def test_init_registers_project_for_web_selector_by_default(tmp_path, capsys) -> None:
     repo = tmp_path / "new-project"
     repo.mkdir()
     registry = tmp_path / "user-config" / "web.yaml"
@@ -407,7 +554,6 @@ def test_init_can_idempotently_register_project_for_web_selector(tmp_path, capsy
         "init",
         "--repo",
         str(repo),
-        "--register-web",
         "--web-config",
         str(registry),
         "--format",
@@ -425,6 +571,33 @@ def test_init_can_idempotently_register_project_for_web_selector(tmp_path, capsy
     assert second["web_registration"]["created"] is False
     config = load_web_console_config(registry)
     assert [project.repo_path for project in config.projects] == [repo.resolve()]
+
+
+def test_init_can_explicitly_skip_web_registration(tmp_path, capsys) -> None:
+    repo = tmp_path / "local-only"
+    repo.mkdir()
+    registry = tmp_path / "user-config" / "web.yaml"
+
+    assert (
+        main(
+            [
+                "init",
+                "--repo",
+                str(repo),
+                "--no-register-web",
+                "--web-config",
+                str(registry),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["profile_created"] is True
+    assert result["web_registration"] is None
+    assert not registry.exists()
 
 
 def test_public_sanitizer_redacts_local_resource_uris() -> None:

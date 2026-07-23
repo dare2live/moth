@@ -184,11 +184,25 @@ To initialize a repository and add it to the user-level project selector in
 one idempotent Moth call, run inside that repository:
 
 ```bash
-moth init --repo . --register-web
-moth serve
+moth init --repo .
 ```
 
-Open the complete loopback URL printed by the command. Its fragment contains a
+`moth init` registers the project for the Web Console by default. Use
+`--no-register-web` only when the repository must stay out of the selector.
+The older explicit `--register-web` form remains compatible.
+
+To start the backend from the Moth checkout, double-click `start.command`.
+It uses the checkout's `.venv` when available, starts the authenticated
+loopback server, and opens the Web Console automatically. The equivalent
+terminal command is:
+
+```bash
+moth serve --open-browser
+```
+
+Keep the launcher Terminal window open while using the console; close it or
+press Ctrl-C to stop the backend. If browser launch is unavailable, Moth prints
+the complete loopback URL instead. Its fragment contains a
 short-lived capability token; the browser removes the fragment immediately and
 sends the token only in the `Authorization` header. The console lists only
 projects declared in the YAML registry and requests a fresh inspection with:

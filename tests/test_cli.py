@@ -677,6 +677,7 @@ def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:
             "goal=goal.md",
             "--output",
             str(output),
+            "--no-register-web",
             "--format",
             "json",
         ]

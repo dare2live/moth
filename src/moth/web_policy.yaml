@@ -11,3 +11,9 @@ api:
   max_query_length: 2048
   max_body_bytes: 4096
   max_authorization_bytes: 256
+browser_launch:
+  platforms:
+    darwin:
+      transport: stdin_applescript
+      command: [/usr/bin/osascript]
+      timeout_seconds: 5

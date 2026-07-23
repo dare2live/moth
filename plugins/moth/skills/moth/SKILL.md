@@ -59,11 +59,15 @@ When the user wants to browse several configured projects or inspect the
 portable contracts through a local API, keep the same Moth entry:
 
 ```bash
-moth init --repo <repo> --register-web
-moth serve
+moth init --repo <repo>
+moth serve --open-browser
 ```
 
-Open the complete loopback URL printed by Moth. The browser project selector
+`moth init` registers the repository by default; use `--no-register-web` only
+for an intentionally local-only profile. From the Moth checkout, the user may
+double-click `start.command` instead of running the serve command. Open the
+complete loopback URL printed by Moth if automatic browser launch is
+unavailable. The browser project selector
 can request only allowlisted project IDs. Web requests always use
 `safe_view`: they never run repository assertion packs, profile-selected
 external complexity commands, configurable tool adapters, change gates, or

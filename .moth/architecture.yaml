@@ -87,11 +87,23 @@ current:
       responsibility: Enforce the authenticated HTTP contract and exact packaged asset routes.
       locator: src/moth/web_app.py
       evidence_ids: [web-console-contract, operating-model]
+    - id: service:web-server
+      kind: service
+      name: Web server lifecycle
+      responsibility: Bind the loopback server, mint the capability URL, and optionally open the browser.
+      locator: src/moth/web_server.py
+      evidence_ids: [web-console-contract, operating-model]
     - id: application:web-console
       kind: application
       name: Moth Web Console
       responsibility: Render the visual document and switch between configured projects without recomputing audit truth.
       locator: src/moth/web_assets/index.html
+      evidence_ids: [web-console-contract, operating-model]
+    - id: application:web-launcher
+      kind: application
+      name: Moth Web launcher
+      responsibility: Resolve the checkout environment and invoke the shared Web server entrypoint.
+      locator: start.command
       evidence_ids: [web-console-contract, operating-model]
   relations:
     - id: relation:inspection-snapshot
@@ -141,6 +153,18 @@ current:
       source_id: service:web-app
       target_id: service:web-service
       label: dispatches allowlisted project
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-launcher-server
+      kind: calls
+      source_id: application:web-launcher
+      target_id: service:web-server
+      label: starts local server and browser
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-server-app
+      kind: calls
+      source_id: service:web-server
+      target_id: service:web-app
+      label: serves authenticated application
       evidence_ids: [web-console-contract, operating-model]
     - id: relation:web-registry-config
       kind: writes
@@ -197,6 +221,9 @@ current:
     - id: flow:web-console
       name: Safe project inspection
       steps:
+        - id: step:web-start
+          entity_id: application:web-launcher
+          action: start the loopback backend and open the capability URL
         - id: step:web-select
           entity_id: application:web-console
           action: select a configured project id
@@ -279,6 +306,20 @@ desired:
       locator: src/moth/web_app.py
       expectation: REQUIRED
       evidence_ids: [web-console-contract, operating-model]
+    - id: service:web-server
+      kind: service
+      name: Web server lifecycle
+      responsibility: Bind the loopback server, mint the capability URL, and optionally open the browser.
+      locator: src/moth/web_server.py
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
+    - id: application:web-launcher
+      kind: application
+      name: Moth Web launcher
+      responsibility: Resolve the checkout environment and invoke the shared Web server entrypoint.
+      locator: start.command
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
   relations:
     - id: relation:inspection-change-safety
       kind: calls
@@ -299,6 +340,20 @@ desired:
       source_id: service:web-app
       target_id: service:web-service
       label: dispatches allowlisted project
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-launcher-server
+      kind: calls
+      source_id: application:web-launcher
+      target_id: service:web-server
+      label: starts local server and browser
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-server-app
+      kind: calls
+      source_id: service:web-server
+      target_id: service:web-app
+      label: serves authenticated application
       expectation: REQUIRED
       evidence_ids: [web-console-contract, operating-model]
   flows: []

@@ -179,7 +179,18 @@ def test_cli_gates_runs_and_lists(tmp_path: Path, capsys) -> None:
 def test_moth_init_creates_takeover_template(tmp_path: Path, capsys) -> None:
     repo = tmp_path / "sample-repo"
     repo.mkdir()
-    rc = main(["init", "--repo", str(repo), "--name", "sample-repo", "--format", "json"])
+    rc = main(
+        [
+            "init",
+            "--repo",
+            str(repo),
+            "--name",
+            "sample-repo",
+            "--no-register-web",
+            "--format",
+            "json",
+        ]
+    )
     payload = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert any(p.endswith("takeover.yaml") for p in payload["takeover_scaffold"])

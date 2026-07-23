@@ -185,6 +185,7 @@ stages:
       - src/moth/web_assets/index.html
       - src/moth/web_assets/app.css
       - src/moth/web_assets/app.js
+      - start.command
       - src/moth/schemas/moth.web-console.schema.json
       - src/moth/schemas/moth.web-project-view.schema.json
       - tests/test_web_console.py

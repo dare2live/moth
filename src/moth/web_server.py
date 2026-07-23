@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
+from moth.browser_launcher import open_capability_url
 from moth.web_app import create_web_application
 from moth.web_config import load_web_console_config, load_web_policy
 
@@ -25,7 +26,11 @@ class BoundedWSGIServer(WSGIServer):
         return socket, address
 
 
-def serve_web_console(config_path: str | Path) -> int:
+def serve_web_console(
+    config_path: str | Path,
+    *,
+    open_browser: bool = False,
+) -> int:
     config = load_web_console_config(config_path)
     token = secrets.token_urlsafe(32)
     app = create_web_application(config, token=token)
@@ -41,6 +46,14 @@ def serve_web_console(config_path: str | Path) -> int:
         sys.stdout.write(f"{url}\n")
         sys.stdout.write("Press Ctrl-C to stop.\n")
         sys.stdout.flush()
+        if open_browser:
+            opened = open_capability_url(url)
+            if not opened:
+                sys.stderr.write(
+                    "Moth could not open a browser automatically; "
+                    "open the URL printed above.\n"
+                )
+                sys.stderr.flush()
         try:
             server.serve_forever()
         except KeyboardInterrupt:
