@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "limits",
+    "apple",
+    "web",
+    "mini_program",
+    "data_ai",
+    "composition"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_depth",
+        "max_entries",
+        "max_manifest_bytes",
+        "excluded_directories"
+      ],
+      "properties": {
+        "max_depth": {"type": "integer", "minimum": 1, "maximum": 20},
+        "max_entries": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "max_manifest_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+        "excluded_directories": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "apple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detector_id",
+        "project_globs",
+        "swift_package_globs",
+        "platform_signals"
+      ],
+      "properties": {
+        "detector_id": {"$ref": "#/$defs/nonEmpty"},
+        "project_globs": {"$ref": "#/$defs/stringList"},
+        "swift_package_globs": {"$ref": "#/$defs/stringList"},
+        "platform_signals": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "contains_any"],
+            "properties": {
+              "name": {"$ref": "#/$defs/nonEmpty"},
+              "contains_any": {"$ref": "#/$defs/stringList"}
+            }
+          }
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detector_id",
+        "package_globs",
+        "capabilities",
+        "framework_dependencies"
+      ],
+      "properties": {
+        "detector_id": {"$ref": "#/$defs/nonEmpty"},
+        "package_globs": {"$ref": "#/$defs/stringList"},
+        "capabilities": {"$ref": "#/$defs/capabilityDefinitions"},
+        "framework_dependencies": {"$ref": "#/$defs/capabilityMap"}
+      }
+    },
+    "mini_program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detector_id", "platforms"],
+      "properties": {
+        "detector_id": {"$ref": "#/$defs/nonEmpty"},
+        "platforms": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_manifest",
+              "app_manifest",
+              "name",
+              "runtime_id",
+              "name_field"
+            ],
+            "properties": {
+              "project_manifest": {"$ref": "#/$defs/nonEmpty"},
+              "app_manifest": {"$ref": "#/$defs/nonEmpty"},
+              "name": {"$ref": "#/$defs/nonEmpty"},
+              "runtime_id": {"$ref": "#/$defs/nonEmpty"},
+              "name_field": {"$ref": "#/$defs/nonEmpty"},
+              "discriminator": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["field", "equals"],
+                "properties": {
+                  "field": {"$ref": "#/$defs/nonEmpty"},
+                  "equals": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "data_ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detector_id",
+        "notebook_capability",
+        "notebook_globs",
+        "python_manifest_globs",
+        "capabilities",
+        "dependency_capabilities"
+      ],
+      "properties": {
+        "detector_id": {"$ref": "#/$defs/nonEmpty"},
+        "notebook_capability": {"$ref": "#/$defs/nonEmpty"},
+        "notebook_globs": {"$ref": "#/$defs/stringList"},
+        "python_manifest_globs": {"$ref": "#/$defs/stringList"},
+        "capabilities": {"$ref": "#/$defs/capabilityDefinitions"},
+        "dependency_capabilities": {"$ref": "#/$defs/capabilityMap"}
+      }
+    },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mixed", "multi_repository"],
+      "properties": {
+        "mixed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "subtype", "collapse_subtypes"],
+          "properties": {
+            "id": {"$ref": "#/$defs/nonEmpty"},
+            "name": {"$ref": "#/$defs/nonEmpty"},
+            "subtype": {"$ref": "#/$defs/nonEmpty"},
+            "collapse_subtypes": {"$ref": "#/$defs/stringList"}
+          }
+        },
+        "multi_repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["detector_id", "manifest", "id", "name", "subtype"],
+          "properties": {
+            "detector_id": {"$ref": "#/$defs/nonEmpty"},
+            "manifest": {"$ref": "#/$defs/nonEmpty"},
+            "id": {"$ref": "#/$defs/nonEmpty"},
+            "name": {"$ref": "#/$defs/nonEmpty"},
+            "subtype": {"$ref": "#/$defs/nonEmpty"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1},
+    "stringList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/nonEmpty"},
+      "uniqueItems": true
+    },
+    "capabilityMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "capability"],
+        "properties": {
+          "id": {"$ref": "#/$defs/nonEmpty"},
+          "name": {"$ref": "#/$defs/nonEmpty"},
+          "capability": {"$ref": "#/$defs/nonEmpty"}
+        }
+      }
+    },
+    "capabilityDefinitions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "subtype"],
+        "properties": {
+          "name": {"$ref": "#/$defs/nonEmpty"},
+          "subtype": {"$ref": "#/$defs/nonEmpty"}
+        }
+      }
+    }
+  }
+}

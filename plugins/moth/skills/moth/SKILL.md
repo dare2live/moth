@@ -40,6 +40,19 @@ Do not continue when the inspection status is `FAIL`; diagnose the reported
 contract or project-health failure first. `NEEDS_EXECUTOR` is the expected
 pre-load state, not a project failure.
 
+When the user needs a readable local project atlas, use the same Moth entry
+instead of invoking a separate renderer:
+
+```bash
+moth inspect --repo <repo> --task-kind <kind> --plan-only \
+  --format html --output <report.html>
+```
+
+The HTML is a self-contained rendering of `moth.visual-document.v1`. It must
+not run collectors, know platform/tool-specific schemas, or invent priorities,
+To-Be architecture, flows, or risk claims that are absent from the inspection
+evidence.
+
 ## 3. Load every planned Guidance source
 
 Read `orchestration.decision_context.ordered_guidance_sources` in order. For

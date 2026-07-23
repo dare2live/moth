@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import yaml
 
 from moth.cli import main
@@ -75,6 +76,65 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
     }
 
 
+def test_inspect_can_render_self_contained_html(capsys, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_inspection",
+        lambda *_args, **_kwargs: {
+            "schema_version": "moth.inspection.v1",
+            "status": "PASS",
+            "project_health": "PASS",
+            "context_readiness": "READY",
+            "snapshot": {
+                "status": "PASS",
+                "issues": [],
+                "warnings": [],
+                "dirty_worktree_count": 0,
+                "project_model": {
+                    "verdict": "PASS",
+                    "project": {
+                        "id": "project:sample",
+                        "name": "sample",
+                        "description": "Sample project",
+                        "version": None,
+                        "evidence_ids": [],
+                    },
+                    "applications": [],
+                    "runtimes": [],
+                    "modules": [],
+                    "evidence": [],
+                    "coverage": {"detectors": [], "issues": [], "warnings": []},
+                },
+                "codegraph": {},
+                "complexity": {},
+                "coupling": {},
+                "import_cycles": {},
+                "tool_evidence": {"tools": {}},
+                "assertions": {},
+            },
+            "orchestration": {"decision_context": {"context_readiness": "READY"}},
+        },
+    )
+    output = tmp_path / "moth.html"
+
+    code = main(
+        [
+            "inspect",
+            "--repo",
+            str(tmp_path),
+            "--format",
+            "html",
+            "--output",
+            str(output),
+        ]
+    )
+    rendered = capsys.readouterr().out
+
+    assert code == 0
+    assert rendered.startswith("<!doctype html>")
+    assert output.read_text(encoding="utf-8") == rendered
+    assert '<meta http-equiv="Content-Security-Policy"' in rendered
+
+
 def test_inspect_uses_ephemeral_profile_without_writing_target_repo(
     capsys, monkeypatch, tmp_path
 ) -> None:
@@ -105,6 +165,31 @@ def test_inspect_uses_ephemeral_profile_without_writing_target_repo(
         "repo_path": repo.resolve(),
     }
     assert not (repo / ".moth").exists()
+
+
+@pytest.mark.parametrize("output_format", ["json", "markdown", "html"])
+def test_inspect_invalid_receipts_fail_consistently_without_traceback(
+    output_format, capsys, tmp_path
+) -> None:
+    receipts = tmp_path / "receipts.json"
+    receipts.write_text("not-json", encoding="utf-8")
+
+    code = main(
+        [
+            "inspect",
+            "--repo",
+            str(tmp_path),
+            "--receipts",
+            str(receipts),
+            "--format",
+            output_format,
+        ]
+    )
+    rendered = capsys.readouterr().out
+
+    assert code == 1
+    assert "inspection failed" in rendered
+    assert "Traceback" not in rendered
 
 
 def test_snapshot_emits_json_for_chunkymonkey(capsys, monkeypatch) -> None:

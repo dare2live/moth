@@ -95,6 +95,8 @@ moth coupling --repo /Users/dp/Documents/M/stock/chunkymonkey --impact config/sc
 moth cycles --repo /Users/dp/Documents/M/lifehack --format markdown
 moth takeover --repo /Users/dp/Documents/M/lifehack
 moth gates --repo /Users/dp/Documents/M/lifehack my_experiment
+moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind architecture_orchestration --plan-only --format json
+moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind architecture_orchestration --plan-only --format html --output /tmp/moth-lifehack.html
 ```
 
 Moth expects the current CodeGraph CLI surface (`status --json`,
@@ -106,8 +108,8 @@ profile pins an external `complexity_command`:
 npm install -g codex-complexity-optimizer
 ```
 
-Omen is an optional analyzer, not a current snapshot dependency. The verified
-upstream is `panbanda/omen`; install its CLI with:
+Omen is an optional external evidence provider. The verified upstream is
+`panbanda/omen`; install its CLI with:
 
 ```bash
 brew install panbanda/brews/omen
@@ -115,10 +117,12 @@ omen --version
 omen --path . --format json --compact hotspot --top 10
 ```
 
-Moth's next Omen adapter should consume bounded `hotspot`, `changes`, and
-`diff` JSON. It must not make `omen all` a release gate: individual analyzer
-failures need explicit, per-capability verdicts instead of being hidden behind
-an aggregate exit status.
+Moth's thin Omen adapter consumes bounded `hotspot`, `changes`, and `diff`
+JSON. Compatibility is decided by runtime capability and output-contract
+probes, not by an exact version ceiling; the observed version remains evidence.
+Moth does not make `omen all` a release gate: individual analyzer failures
+retain explicit, per-capability verdicts instead of being hidden behind an
+aggregate exit status.
 
 The official installer writes the analyzer under
 `${CODEX_HOME:-~/.codex}/skills/complexity-optimizer`; profile command entries
@@ -147,12 +151,23 @@ instruction_sources:
       egress_policy: metadata_only
 ```
 
-Moth resolves `skill:mio` against `${CODEX_HOME:-~/.codex}` and publishes
-identity, SHA-256 digest, mtime, and availability only. The current contract is
-deliberately discovery-only: `UNAVAILABLE`, `INVALID`, or `DISCOVERED` do not
-claim that an agent loaded or applied the skill. Absolute paths, skill bodies,
-and caller-supplied activation claims are removed from public profile and
-snapshot output.
+`moth inspect` resolves the registered Guidance DAG, normally Mio before
+architect-controller, and returns one activation plan. Discovery,
+applicability, receipt, and application remain separate states:
+`UNAVAILABLE`, `INVALID`, or `DISCOVERED` never claim that an agent loaded the
+Skill. The bundled execution bridge may return honest `SELF_ATTESTED` receipts
+after the host reads each Skill; only host-native trusted telemetry may produce
+`READY`. Absolute paths, Skill bodies, task text, amend trails, and raw receipt
+working files are removed from public inspection output.
+
+The same `inspect` entry can render `moth.visual-document.v1` as a self-contained
+HTML project atlas. The renderer consumes only that normalized document; it
+does not call detectors or understand Omen, CodeGraph, Mio, Apple, Web, or any
+other platform-specific contract. Missing To-Be architecture or business-flow
+evidence is shown as undeclared/partial rather than invented.
+Entity, relation, finding, and evidence rendering budgets live in
+`visual_policy.yaml`; truncated views publish omitted counts instead of
+silently expanding the DOM.
 
 `sync` refreshes the repo's CodeGraph index first and then emits a payload with
 both the sync result and the latest snapshot.

@@ -27,8 +27,8 @@
       "properties": {
         "id": {"type": "string"},
         "name": {"type": "string", "minLength": 1},
-        "version": {"type": "string"},
-        "description": {"type": "string"},
+        "version": {"type": ["string", "null"]},
+        "description": {"type": ["string", "null"]},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"}
       },
       "additionalProperties": false
@@ -78,7 +78,22 @@
     },
     "modules": {
       "type": "array",
-      "items": {"type": "object"}
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "name", "subtype", "evidence_ids"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "subtype": {"type": "string", "minLength": 1},
+          "locator": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+          },
+          "evidence_ids": {"$ref": "#/$defs/evidence_ids"}
+        },
+        "additionalProperties": true
+      }
     },
     "evidence": {
       "type": "array",

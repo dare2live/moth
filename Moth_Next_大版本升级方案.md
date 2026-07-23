@@ -1478,6 +1478,33 @@ executor contract 的遥测才能把上下文判为 `READY`；
 
 不追求第一版支持所有语言和框架。
 
+### 阶段一、三、四、五实施进度（2026-07-23）
+
+当前实现已经形成配置驱动、渲染器无关的第二个可恢复检查点：
+
+- `moth.project-model.v1` 由 detector registry 汇总，探测规则和扫描预算集中在
+  `platform_rules.yaml`，并由 JSON Schema fail closed 校验；Core 不按框架名写分支；
+- Apple、Web/API、微信/支付宝小程序、数据/AI、多仓库 detector 只读取仓内清单和
+  结构证据，不跟随 symlink，不泄露 `.gitmodules` URL，不把包名猜测成平台；
+- 多 detector 合并、冲突、coverage 和 mixed composition 有统一合同；Data 与 AI
+  是同一数据智能平台的子能力，不因同时存在就虚构成多平台项目；
+- `moth.visual-document.v1` 是 renderer-neutral 单一视觉合同，运行时使用同一份
+  打包 Schema 校验；实体、关系、问题、
+  行动和证据全局去重并用引用连接；层和视角来自 `visual_policy.yaml`；
+- `moth inspect --format html --output <report.html>` 通过同一个 Moth 入口生成
+  自包含静态报告，包含六层、三视角、首页优先项、禁止项和统一问题解释卡；
+- As-Is 只显示已观察事实；To-Be 无权威声明时明确显示 `NOT_DECLARED`，当前仍未
+  实现仓内目标架构摄取与 drift 计算，因此阶段四只能记为 `PARTIAL`；
+- 真实浏览器验收覆盖 1280px 桌面与 390×844 移动视口：无外部资源和控制台错误，
+  无重复 ID 或失效内部锚点，移动端无根文档横向溢出，导航触控高度至少 44px。
+- 实体、关系、问题和证据分别受 `visual_policy.yaml` 容量预算约束；10,000 应用、
+  10,000 关系和 10,000 独立证据的对抗 fixture 仍生成小于 500KB 的 HTML，并保留
+  omitted 计数与所有可见证据锚点。
+
+这批实现没有引入某个工具或平台的版本上限。平台识别规则、视觉分类、容量上限和
+外部工具输出合同分别由独立配置与模块负责；渲染器只消费统一合同，不能调用探测器
+或了解 CodeGraph、Omen、Mio 等具体上游。
+
 ## 阶段六：风险关联与变化分析
 
 增加：

@@ -10,7 +10,9 @@ from pathlib import Path
 
 from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
 from moth.guidance_policy import TASK_KINDS
-from moth.inspection import build_inspection, render_inspection_markdown, sanitize_public_text
+from moth.html_report import render_html_report
+from moth.inspection import build_failed_inspection
+from moth.inspection import build_inspection, render_inspection_markdown
 from moth.profiles.loader import build_default_profile, load_profile, match_profile
 from moth.profiles.scaffold import build_profile_scaffold
 from moth.profiles.scaffold import default_profile_path
@@ -27,6 +29,8 @@ from moth.schema import SNAPSHOT_SCHEMA_VERSION
 from moth.schema import utc_now_iso
 from moth.workspace import build_workspace_report
 from moth.workspace import render_workspace_markdown
+from moth.visual_model import build_visual_model
+from moth.visual_model import validate_visual_document_schema, validate_visual_model
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--run-id")
     inspect.add_argument("--receipts")
     inspect.add_argument("--plan-only", action="store_true")
-    inspect.add_argument("--format", choices=("markdown", "json"), default="json")
+    inspect.add_argument("--format", choices=("markdown", "json", "html"), default="json")
     inspect.add_argument("--output")
 
     snapshot = sub.add_parser("snapshot", help="Emit a machine-readable repo snapshot")
@@ -190,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.cmd == "inspect":
+        visual_document = None
         try:
             receipts = _load_receipts(args.receipts)
             profile = _resolve_inspection_profile(args.repo, args.profile)
@@ -200,15 +205,26 @@ def main(argv: list[str] | None = None) -> int:
                 receipts=receipts,
                 codex_home=Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")),
             )
+            if args.format == "html":
+                visual_document = build_visual_model(payload)
+                visual_errors = [
+                    *validate_visual_document_schema(visual_document),
+                    *validate_visual_model(visual_document),
+                ]
+                if visual_errors:
+                    raise ValueError(
+                        f"visual document validation failed: {visual_errors[0]}"
+                    )
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
-            payload = {
-                "schema_version": "moth.inspection.v1",
-                "status": "FAIL",
-                "project_health": "UNKNOWN",
-                "context_readiness": "BLOCKED",
-                "issues": [sanitize_public_text(exc)],
-            }
-        rendered = render_json(payload) + "\n" if args.format == "json" else render_inspection_markdown(payload)
+            payload = build_failed_inspection(exc)
+            if args.format == "html":
+                visual_document = build_visual_model(payload)
+        if args.format == "json":
+            rendered = render_json(payload) + "\n"
+        elif args.format == "html":
+            rendered = render_html_report(visual_document or build_visual_model(payload))
+        else:
+            rendered = render_inspection_markdown(payload)
         _write_output(args.output, rendered)
         sys.stdout.write(rendered)
         if payload["status"] == "FAIL":

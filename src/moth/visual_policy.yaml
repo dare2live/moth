@@ -1,0 +1,45 @@
+kind: moth_visual_policy
+schema_version: 1
+limits:
+  priorities: 5
+  avoid: 5
+  entities_per_layer: 80
+  relations_per_layer: 160
+  findings_per_layer: 50
+  evidence_per_layer: 500
+status_labels:
+  PASS: 状态稳定
+  WARN: 需要谨慎
+  FAIL: 存在阻断
+  NEEDS_EXECUTOR: 等待可信执行
+  CONTEXT_SELF_ATTESTED: 上下文仅自证
+  UNKNOWN: 状态未知
+layers:
+  - id: overview
+    label: 项目全景
+    summary: 先确认项目身份、当前状态和认知覆盖。
+  - id: architecture
+    label: 系统架构
+    summary: 区分已经观察到的组件与尚未声明的目标架构。
+  - id: stack
+    label: 技术栈
+    summary: 展示运行时与依赖证据，不用 Logo 代替状态。
+  - id: flows
+    label: 模块与流程
+    summary: 只在存在真实流程或状态转换证据时解释系统如何工作。
+  - id: code
+    label: 工程与代码
+    summary: 汇总索引、复杂度、耦合和循环依赖信号。
+  - id: evidence
+    label: 证据与原始数据
+    summary: 保留结论的来源、覆盖边界和工具状态。
+viewpoints:
+  - id: product
+    label: 产品视角
+    layer_ids: [overview, flows, evidence]
+  - id: system
+    label: 系统视角
+    layer_ids: [architecture, stack, code, evidence]
+  - id: risk
+    label: 风险视角
+    layer_ids: [overview, code, evidence]

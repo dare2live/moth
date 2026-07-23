@@ -40,11 +40,16 @@ def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
         }
     ]
     assert model["modules"] == []
-    assert model["coverage"] == {
-        "detectors": [{"id": "python-project", "state": "DETECTED"}],
-        "issues": [],
-        "warnings": [],
-    }
+    assert model["coverage"]["detectors"] == [
+        {"id": "python-project", "state": "DETECTED"},
+        {"id": "apple-project", "state": "NOT_DETECTED"},
+        {"id": "web-project", "state": "NOT_DETECTED"},
+        {"id": "mini-program-project", "state": "NOT_DETECTED"},
+        {"id": "data-ai-project", "state": "NOT_DETECTED"},
+        {"id": "multi-repository-project", "state": "NOT_DETECTED"},
+    ]
+    assert model["coverage"]["issues"] == []
+    assert model["coverage"]["warnings"] == []
 
     evidence = model["evidence"]
     assert len(evidence) == 1
@@ -90,11 +95,14 @@ def test_unknown_repository_returns_warned_empty_model(tmp_path) -> None:
     assert model["runtimes"] == []
     assert model["modules"] == []
     assert model["evidence"] == []
-    assert model["coverage"] == {
-        "detectors": [{"id": "python-project", "state": "NOT_DETECTED"}],
-        "issues": [],
-        "warnings": ["python project coverage unavailable: pyproject.toml not found"],
-    }
+    assert all(
+        detector["state"] == "NOT_DETECTED"
+        for detector in model["coverage"]["detectors"]
+    )
+    assert model["coverage"]["issues"] == []
+    assert model["coverage"]["warnings"] == [
+        "project coverage unavailable: no supported manifest detected"
+    ]
 
 
 def test_project_model_schema_declares_stage_one_contract() -> None:

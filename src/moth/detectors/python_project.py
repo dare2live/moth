@@ -19,7 +19,7 @@ def _empty(state: str, *, issue: str | None = None, warning: str | None = None) 
 def detect_python_project(repo_path: str | Path) -> dict[str, Any]:
     manifest = Path(repo_path) / "pyproject.toml"
     if not manifest.is_file():
-        return _empty("NOT_DETECTED", warning="python project coverage unavailable: pyproject.toml not found")
+        return _empty("NOT_DETECTED")
     try:
         raw = manifest.read_bytes()
         data = tomllib.loads(raw.decode("utf-8"))

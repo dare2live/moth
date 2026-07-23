@@ -10,9 +10,7 @@ def test_missing_pyproject_reports_unknown_coverage_without_guessing(tmp_path) -
     assert result["runtimes"] == []
     assert result["modules"] == []
     assert result["issues"] == []
-    assert result["warnings"] == [
-        "python project coverage unavailable: pyproject.toml not found"
-    ]
+    assert result["warnings"] == []
     assert str(tmp_path) not in repr(result)
 
 

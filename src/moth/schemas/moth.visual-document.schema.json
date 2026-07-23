@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moth.local/schemas/moth.visual-document.schema.json",
+  "title": "Moth Visual Document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "identity",
+    "status",
+    "home",
+    "navigation",
+    "entities",
+    "relations",
+    "findings",
+    "actions",
+    "evidence",
+    "layers",
+    "architecture"
+  ],
+  "properties": {
+    "schema_version": {"const": "moth.visual-document.v1"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inspection_digest", "generated_at"],
+      "properties": {
+        "inspection_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "generated_at": {"type": ["string", "null"]}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "version",
+        "tags",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "description": {"type": ["string", "null"]},
+        "version": {"type": ["string", "null"]},
+        "tags": {"$ref": "#/$defs/stringList"},
+        "evidence_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "project_health",
+        "context_readiness",
+        "label",
+        "summary",
+        "evidence_ids"
+      ],
+      "properties": {
+        "value": {"type": "string", "minLength": 1},
+        "project_health": {"type": "string", "minLength": 1},
+        "context_readiness": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "evidence_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "home": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority_finding_ids", "avoid_action_ids"],
+      "properties": {
+        "priority_finding_ids": {"$ref": "#/$defs/stringList"},
+        "avoid_action_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers", "viewpoints"],
+      "properties": {
+        "layers": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/navigationItem"}
+        },
+        "viewpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "layer_ids"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "label": {"type": "string", "minLength": 1},
+              "layer_ids": {"$ref": "#/$defs/stringList"}
+            }
+          }
+        }
+      }
+    },
+    "entities": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/entity"}
+    },
+    "relations": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/relation"}
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/finding"}
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/action"}
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/evidence"}
+    },
+    "layers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/layer"}
+    },
+    "architecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["as_is", "to_be", "drift"],
+      "properties": {
+        "as_is": {"$ref": "#/$defs/architectureState"},
+        "to_be": {"$ref": "#/$defs/architectureState"},
+        "drift": {"type": "array"}
+      }
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "navigationItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1}
+      }
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "summary",
+        "status",
+        "evidence_ids",
+        "attributes"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "summary": {"type": "string"},
+        "status": {"type": "string", "minLength": 1},
+        "evidence_ids": {"$ref": "#/$defs/stringList"},
+        "attributes": {"type": "object"}
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "source_id",
+        "target_id",
+        "label",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "target_id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "evidence_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "location",
+        "responsibility",
+        "why",
+        "impact",
+        "safest_step",
+        "avoid",
+        "severity",
+        "confidence",
+        "action_bucket",
+        "evidence_ids",
+        "layer_ids",
+        "viewpoint_ids"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "location": {"type": "string", "minLength": 1},
+        "responsibility": {"type": "string", "minLength": 1},
+        "why": {"type": "string", "minLength": 1},
+        "impact": {"$ref": "#/$defs/stringList"},
+        "safest_step": {"type": "string", "minLength": 1},
+        "avoid": {"$ref": "#/$defs/stringList"},
+        "severity": {"enum": ["high", "medium", "low"]},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "action_bucket": {"enum": ["now", "watch", "defer"]},
+        "evidence_ids": {"$ref": "#/$defs/stringList"},
+        "layer_ids": {"$ref": "#/$defs/stringList"},
+        "viewpoint_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "basis_finding_id",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"const": "avoid"},
+        "title": {"type": "string", "minLength": 1},
+        "basis_finding_id": {"type": "string", "minLength": 1},
+        "evidence_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "locator", "summary", "digest"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "locator": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "digest": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          ]
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "summary",
+        "availability",
+        "entity_ids",
+        "relation_ids",
+        "finding_ids",
+        "evidence_ids",
+        "omitted"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "availability": {"enum": ["AVAILABLE", "PARTIAL", "NOT_CHECKED", "TOOL_UNAVAILABLE"]},
+        "entity_ids": {"$ref": "#/$defs/stringList"},
+        "relation_ids": {"$ref": "#/$defs/stringList"},
+        "finding_ids": {"$ref": "#/$defs/stringList"},
+        "evidence_ids": {"$ref": "#/$defs/stringList"},
+        "omitted": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entities", "relations", "findings", "evidence"],
+          "properties": {
+            "entities": {"type": "integer", "minimum": 0},
+            "relations": {"type": "integer", "minimum": 0},
+            "findings": {"type": "integer", "minimum": 0},
+            "evidence": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "architectureState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "entity_ids", "relation_ids", "evidence_ids", "omitted"],
+      "properties": {
+        "state": {"enum": ["OBSERVED", "PARTIAL", "DECLARED", "NOT_DECLARED"]},
+        "entity_ids": {"$ref": "#/$defs/stringList"},
+        "relation_ids": {"$ref": "#/$defs/stringList"},
+        "evidence_ids": {"$ref": "#/$defs/stringList"},
+        "omitted": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entities", "relations"],
+          "properties": {
+            "entities": {"type": "integer", "minimum": 0},
+            "relations": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

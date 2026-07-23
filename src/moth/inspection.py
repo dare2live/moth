@@ -119,16 +119,52 @@ def build_inspection(profile: Any, *, task_kind: str, run_id: str, receipts: lis
     return sanitize_public_value(inspection)
 
 
+def build_failed_inspection(error: Any) -> dict[str, Any]:
+    """Return one portable failure shape shared by every inspection renderer."""
+
+    message = f"inspection failed: {sanitize_public_text(error)}"
+    return {
+        "schema_version": "moth.inspection.v1",
+        "status": "FAIL",
+        "project_health": "UNKNOWN",
+        "context_readiness": "BLOCKED",
+        "issues": [message],
+        "snapshot": {
+            "schema_version": None,
+            "status": "FAIL",
+            "issues": [message],
+            "warnings": [],
+            "dirty_worktree_count": 0,
+        },
+        "orchestration": {
+            "decision_context": {
+                "context_readiness": "BLOCKED",
+                "ordered_guidance_sources": [],
+                "missing_required_sources": [],
+            }
+        },
+    }
+
+
 def render_inspection_markdown(result: dict[str, Any]) -> str:
-    context = result["orchestration"]["decision_context"]
+    orchestration = result.get("orchestration")
+    if not isinstance(orchestration, dict):
+        orchestration = {}
+    context = orchestration.get("decision_context")
+    if not isinstance(context, dict):
+        context = {}
     lines = [
         "# Moth inspection", "",
-        f"- Status: `{result['status']}`",
-        f"- Project health: `{result['project_health']}`",
-        f"- Context readiness: `{result['context_readiness']}`",
+        f"- Status: `{result.get('status', 'FAIL')}`",
+        f"- Project health: `{result.get('project_health', 'UNKNOWN')}`",
+        f"- Context readiness: `{result.get('context_readiness', 'BLOCKED')}`",
     ]
     if context.get("ordered_guidance_sources"):
         lines.append("- Guidance order: " + " -> ".join(context["ordered_guidance_sources"]))
     if context.get("missing_required_sources"):
         lines.append("- Missing verified sources: " + ", ".join(context["missing_required_sources"]))
+    issues = result.get("issues")
+    if isinstance(issues, list) and issues:
+        lines.extend(["", "## Issues"])
+        lines.extend(f"- {sanitize_public_text(item)}" for item in issues)
     return "\n".join(lines) + "\n"

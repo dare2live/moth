@@ -25,7 +25,15 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-moth = ["guidance_policy.yaml", "tool_contracts/*.yaml", "tool_contracts/*.json"]
+moth = [
+  "guidance_policy.yaml",
+  "visual_policy.yaml",
+  "detectors/*.yaml",
+  "detectors/*.json",
+  "schemas/*.json",
+  "tool_contracts/*.yaml",
+  "tool_contracts/*.json",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -1,0 +1,182 @@
+schema_version: 1
+limits:
+  max_depth: 6
+  max_entries: 10000
+  max_manifest_bytes: 1048576
+  excluded_directories:
+    - .git
+    - .venv
+    - node_modules
+    - build
+    - dist
+    - DerivedData
+
+apple:
+  detector_id: apple-project
+  project_globs:
+    - "*.xcodeproj/project.pbxproj"
+  swift_package_globs:
+    - Package.swift
+    - "*/Package.swift"
+    - "*/*/Package.swift"
+    - "*/*/*/Package.swift"
+  platform_signals:
+    ios:
+      name: iOS
+      contains_any:
+        - "sdkroot = iphoneos"
+        - "iphoneos_deployment_target"
+        - ".ios("
+    macos:
+      name: macOS
+      contains_any:
+        - "sdkroot = macosx"
+        - "macosx_deployment_target"
+        - ".macos("
+    watchos:
+      name: watchOS
+      contains_any:
+        - "sdkroot = watchos"
+        - "watchos_deployment_target"
+        - ".watchos("
+    tvos:
+      name: tvOS
+      contains_any:
+        - "sdkroot = appletvos"
+        - "tvos_deployment_target"
+        - ".tvos("
+    visionos:
+      name: visionOS
+      contains_any:
+        - "sdkroot = xros"
+        - "xros_deployment_target"
+        - ".visionos("
+
+web:
+  detector_id: web-project
+  package_globs:
+    - package.json
+    - "*/package.json"
+    - "*/*/package.json"
+    - "*/*/*/package.json"
+  capabilities:
+    web:
+      name: Web
+      subtype: web
+    api:
+      name: API
+      subtype: web
+  framework_dependencies:
+    next:
+      id: nextjs
+      name: Next.js
+      capability: web
+    react-dom:
+      id: react
+      name: React
+      capability: web
+    vue:
+      id: vue
+      name: Vue
+      capability: web
+    svelte:
+      id: svelte
+      name: Svelte
+      capability: web
+    "@angular/core":
+      id: angular
+      name: Angular
+      capability: web
+    express:
+      id: express
+      name: Express
+      capability: api
+    fastify:
+      id: fastify
+      name: Fastify
+      capability: api
+
+mini_program:
+  detector_id: mini-program-project
+  platforms:
+    wechat:
+      project_manifest: project.config.json
+      app_manifest: app.json
+      name: WeChat Mini Program
+      runtime_id: wechat-miniprogram
+      name_field: projectname
+      discriminator:
+        field: compileType
+        equals: miniprogram
+    alipay:
+      project_manifest: mini.project.json
+      app_manifest: app.json
+      name: Alipay Mini Program
+      runtime_id: alipay-miniprogram
+      name_field: projectname
+
+data_ai:
+  detector_id: data-ai-project
+  notebook_capability: data
+  notebook_globs:
+    - "*.ipynb"
+  python_manifest_globs:
+    - pyproject.toml
+    - "*/pyproject.toml"
+    - "*/*/pyproject.toml"
+    - "*/*/*/pyproject.toml"
+  capabilities:
+    data:
+      name: Data
+      subtype: data_ai
+    ai:
+      name: AI
+      subtype: data_ai
+  dependency_capabilities:
+    duckdb:
+      name: DuckDB
+      capability: data
+    pandas:
+      name: pandas
+      capability: data
+    polars:
+      name: Polars
+      capability: data
+    sqlalchemy:
+      name: SQLAlchemy
+      capability: data
+    dbt-core:
+      name: dbt
+      capability: data
+    openai:
+      name: OpenAI
+      capability: ai
+    anthropic:
+      name: Anthropic
+      capability: ai
+    torch:
+      name: PyTorch
+      capability: ai
+    tensorflow:
+      name: TensorFlow
+      capability: ai
+    transformers:
+      name: Transformers
+      capability: ai
+    langchain:
+      name: LangChain
+      capability: ai
+
+composition:
+  mixed:
+    id: composition:mixed
+    name: Mixed project
+    subtype: multi_platform
+    collapse_subtypes:
+      - data_ai
+  multi_repository:
+    detector_id: multi-repository-project
+    manifest: .gitmodules
+    id: composition:multi-repo
+    name: Multi-repository project
+    subtype: git_submodules

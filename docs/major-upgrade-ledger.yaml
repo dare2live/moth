@@ -51,16 +51,20 @@ stages:
       - 固化全量上游兼容矩阵
   - id: stage_1
     title: 统一项目模型
-    state: IN_PROGRESS
+    state: PARTIAL
     evidence:
       - src/moth/project_model.py
       - src/moth/detectors/python_project.py
+      - src/moth/detectors/registry.py
+      - src/moth/detectors/platform_rules.yaml
+      - src/moth/detectors/platform_rules.schema.json
       - schemas/moth.project-model.schema.json
       - tests/test_project_model.py
       - tests/test_python_project_detector.py
+      - tests/test_platform_detectors.py
     residual:
-      - 为 Apple Web 小程序 数据项目增加证据驱动 detector
-      - 建立跨 detector 合并和冲突合同
+      - 在不把视觉投影变成第二真相源的前提下补充服务 关系 真实流程和状态转换合同
+      - 将结构化风险与变化证据通过独立关联模型引用项目实体
   - id: stage_2
     title: Mio 与架构师协作上下文闭环
     state: IN_PROGRESS
@@ -76,31 +80,42 @@ stages:
       - 用 host-native 可信遥测把 SELF_ATTESTED 提升到 READY
   - id: stage_3
     title: 最小可视化闭环
-    state: NOT_STARTED
-    evidence: []
-    residual:
-      - 首页项目身份 状态 五件事 不建议做
-      - 统一问题解释卡
-      - HTML 产物和浏览器验收
+    state: COMPLETE
+    evidence:
+      - src/moth/visual_model.py
+      - src/moth/visual_policy.yaml
+      - src/moth/schemas/moth.visual-document.schema.json
+      - src/moth/html_report.py
+      - tests/test_visual_model.py
+      - tests/test_html_report.py
+      - tests/test_visual_schema.py
+      - tests/test_cli.py
+    residual: []
   - id: stage_4
     title: 逐层架构浏览
-    state: NOT_STARTED
-    evidence: []
+    state: PARTIAL
+    evidence:
+      - src/moth/visual_model.py
+      - src/moth/visual_policy.yaml
+      - src/moth/html_report.py
     residual:
-      - 项目全景 系统架构 技术栈 模块流程 代码 证据六层
-      - As-Is 与 To-Be 分离
-      - 产品 系统 风险三视角
+      - 从仓库权威文档和配置生成可验证的 To-Be 实体与关系
+      - 增加真实业务流程和状态转换探测 不能把入口关系冒充业务流
+      - 计算 As-Is 与 To-Be 漂移并关联证据
   - id: stage_5
     title: 多平台适配
-    state: NOT_STARTED
+    state: COMPLETE
     evidence:
       - src/moth/detectors/python_project.py
-    residual:
-      - Apple
-      - Web
-      - 微信与其他小程序
-      - 数据与 AI
-      - 多仓库与混合项目
+      - src/moth/detectors/apple.py
+      - src/moth/detectors/web.py
+      - src/moth/detectors/mini_program.py
+      - src/moth/detectors/data_ai.py
+      - src/moth/detectors/multi_repository.py
+      - src/moth/detectors/registry.py
+      - src/moth/detectors/platform_rules.yaml
+      - tests/test_platform_detectors.py
+    residual: []
   - id: stage_6
     title: 风险关联与变化分析
     state: PARTIAL
@@ -133,7 +148,7 @@ stages:
       - pyproject.toml
       - src/moth/tool_installations.py
       - plugins/moth/.codex-plugin/plugin.json
+      - plugins/moth/skills/moth/SKILL.md
     residual:
-      - Moth Codex plugin 打包与安装验收
       - CodeGraph complexity Omen 版本兼容矩阵
       - 发行材料与迁移说明
