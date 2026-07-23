@@ -149,9 +149,16 @@ def orphans(repo: Path) -> dict:
             fails.append(f"T4b .moth/profile.yaml 无法解析: {exc}")
             profile = {}
         if isinstance(profile, dict):
-            base = _resolve_repo_path(repo, profile.get("repo_path", repo))
+            base = repo.resolve()
+            raw_repo_path = str(profile.get("repo_path", "."))
+            declared = (
+                Path(raw_repo_path).resolve()
+                if Path(raw_repo_path).is_absolute()
+                else ((repo / ".moth") / raw_repo_path).resolve()
+            )
+            if declared != base and raw_repo_path != ".":
+                fails.append("T4b .moth/profile.yaml repo_path 越界")
             path_fields = {
-                "repo_path": profile.get("repo_path"),
                 "codegraph_root": profile.get("codegraph_root"),
                 "complexity_baseline_path": profile.get("complexity_baseline_path"),
             }
@@ -171,6 +178,25 @@ def orphans(repo: Path) -> dict:
                 path = _resolve_repo_path(repo, ref, base=base)
                 if not path.exists():
                     fails.append(f"T4b .moth/profile.yaml assertion_packs 引用不存在: {ref}")
+            tools = profile.get("tools") or {}
+            if isinstance(tools, dict):
+                for tool_id, options in sorted(tools.items()):
+                    if not isinstance(options, dict):
+                        continue
+                    config_path = options.get("config_path")
+                    if config_path:
+                        resolved = _resolve_repo_path(repo, config_path, base=base).resolve()
+                        try:
+                            resolved.relative_to(base)
+                        except ValueError:
+                            fails.append(
+                                f"T4b .moth/profile.yaml tools.{tool_id}.config_path 越界"
+                            )
+                        else:
+                            if not resolved.exists():
+                                fails.append(
+                                    f"T4b .moth/profile.yaml tools.{tool_id}.config_path 不存在: {config_path}"
+                                )
 
     # T5: CI workflow 硬编码测试清单引用不存在的测试文件
     for wf in glob.glob(str(repo / ".github/workflows/*.yml")) + glob.glob(str(repo / ".github/workflows/*.yaml")):

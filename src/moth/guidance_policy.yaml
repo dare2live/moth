@@ -1,0 +1,24 @@
+kind: moth_guidance_policy
+schema_version: 1
+activations:
+  - always
+  - manual
+  - substantive_judgment
+  - architecture_orchestration
+task_kinds:
+  mechanical: []
+  substantive_judgment:
+    - always
+    - substantive_judgment
+  architecture_orchestration:
+    - always
+    - substantive_judgment
+    - architecture_orchestration
+  high_risk_change:
+    - always
+    - substantive_judgment
+    - architecture_orchestration
+  audit_research:
+    - always
+    - substantive_judgment
+    - architecture_orchestration

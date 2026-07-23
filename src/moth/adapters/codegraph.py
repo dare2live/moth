@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from moth.safe_process import run_safe_process
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _INDEX_FIELDS = {"files", "nodes", "edges"}
 _INDEX_SECTION = "index"
@@ -223,7 +225,7 @@ def _parse_status_json(payload: dict[str, Any], rendered_stdout: str) -> dict[st
 def run_status(root: str | Path) -> dict[str, Any]:
     command = status_command(root)
     try:
-        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        completed = run_safe_process(command, cwd=Path(root))
         returncode = completed.returncode
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
@@ -265,7 +267,7 @@ def run_status(root: str | Path) -> dict[str, Any]:
 def run_sync(root: str | Path) -> dict[str, Any]:
     command = sync_command(root)
     try:
-        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        completed = run_safe_process(command, cwd=Path(root))
         returncode = completed.returncode
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
@@ -317,7 +319,7 @@ def run_affected(
             "totalDependentsTraversed": 0,
         }
     try:
-        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        completed = run_safe_process(command, cwd=Path(root))
         returncode = completed.returncode
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""

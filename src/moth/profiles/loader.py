@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILES_DIR = ROOT / "profiles"
+_TOOL_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 @dataclass(slots=True)
@@ -31,7 +33,20 @@ class RepoProfile:
     assertion_packs: list[Path] = field(default_factory=list)
     # 可选 import-cycle 检查配置: {scan_paths: [], package_prefix: str, allowlist_path: str|None}
     import_cycles: dict[str, Any] | None = None
+    tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     notes: str = ""
+
+
+def build_default_profile(repo_path: str | Path) -> RepoProfile:
+    repo = Path(repo_path).resolve()
+    return RepoProfile(
+        kind="ephemeral_profile",
+        name=repo.name,
+        repo_path=repo,
+        codegraph_root=repo,
+        instruction_sources={"sources": []},
+        notes="Ephemeral profile generated for one Moth inspection.",
+    )
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -43,13 +58,54 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def _resolve(base: Path, value: Any) -> Path:
     path = Path(str(value))
-    return path if path.is_absolute() else (base / path).resolve()
+    return path.resolve() if path.is_absolute() else (base / path).resolve()
 
 
-def _load_evidence_paths(data: dict[str, Any], base: Path) -> dict[str, Path]:
+def _is_repo_local_profile(path: Path) -> bool:
+    return path.name == "profile.yaml" and path.parent.name == ".moth"
+
+
+def _is_moth_owned_profile(path: Path) -> bool:
+    """Only bundled profiles may intentionally reference cross-repo evidence."""
+
+    return path.resolve().parent == PROFILES_DIR.resolve()
+
+
+def _resolve_profile_path(
+    base: Path,
+    value: Any,
+    *,
+    field_name: str,
+    require_repo_local: bool,
+) -> Path:
+    resolved = _resolve(base, value)
+    if require_repo_local:
+        try:
+            resolved.relative_to(base.resolve())
+        except ValueError as exc:
+            raise ValueError(
+                f"{field_name} escapes the profile repository"
+            ) from exc
+    return resolved
+
+
+def _load_evidence_paths(
+    data: dict[str, Any],
+    base: Path,
+    *,
+    require_repo_local: bool,
+) -> dict[str, Path]:
     raw = data.get("evidence_paths")
     if isinstance(raw, dict):
-        return {str(label): _resolve(base, value) for label, value in raw.items()}
+        return {
+            str(label): _resolve_profile_path(
+                base,
+                value,
+                field_name=f"evidence_paths.{label}",
+                require_repo_local=require_repo_local,
+            )
+            for label, value in raw.items()
+        }
 
     legacy_keys = {
         "goal": data.get("goal_path"),
@@ -59,7 +115,12 @@ def _load_evidence_paths(data: dict[str, Any], base: Path) -> dict[str, Path]:
         "docs": data.get("docs_root"),
     }
     return {
-        label: _resolve(base, value)
+        label: _resolve_profile_path(
+            base,
+            value,
+            field_name=f"evidence_paths.{label}",
+            require_repo_local=require_repo_local,
+        )
         for label, value in legacy_keys.items()
         if value is not None
     }
@@ -96,13 +157,77 @@ def _load_complexity_excludes(data: dict[str, Any]) -> list[str]:
     return [str(item) for item in raw]
 
 
-def _load_import_cycles(data: dict[str, Any]) -> dict[str, Any] | None:
+def _load_import_cycles(
+    data: dict[str, Any],
+    base: Path,
+    *,
+    require_repo_local: bool,
+) -> dict[str, Any] | None:
     raw = data.get("import_cycles")
     if raw is None:
         return None
     if not isinstance(raw, dict):
         raise ValueError("import_cycles must be a mapping (scan_paths/package_prefix/allowlist_path)")
-    return {str(key): value for key, value in raw.items()}
+    options = {str(key): value for key, value in raw.items()}
+    raw_scan_paths = options.get("scan_paths") or []
+    if not isinstance(raw_scan_paths, list):
+        raise ValueError("import_cycles.scan_paths must be a list")
+
+    def portable_path(value: Any, field_name: str) -> str:
+        resolved = _resolve_profile_path(
+            base,
+            value,
+            field_name=field_name,
+            require_repo_local=require_repo_local,
+        )
+        if require_repo_local:
+            return resolved.relative_to(base.resolve()).as_posix()
+        return str(resolved)
+
+    options["scan_paths"] = [
+        portable_path(value, f"import_cycles.scan_paths[{index}]")
+        for index, value in enumerate(raw_scan_paths)
+    ]
+    if options.get("allowlist_path"):
+        options["allowlist_path"] = portable_path(
+            options["allowlist_path"],
+            "import_cycles.allowlist_path",
+        )
+    return options
+
+
+def _load_tools(
+    data: dict[str, Any],
+    base: Path,
+    *,
+    require_repo_local: bool,
+) -> dict[str, dict[str, Any]]:
+    raw = data.get("tools")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("tools must be a mapping keyed by tool id")
+    tools: dict[str, dict[str, Any]] = {}
+    for raw_id, raw_options in raw.items():
+        tool_id = str(raw_id)
+        if not _TOOL_ID_RE.fullmatch(tool_id):
+            raise ValueError(f"invalid tool id: {tool_id}")
+        if not isinstance(raw_options, dict):
+            raise ValueError(f"tool {tool_id} config must be a mapping")
+        options = {str(key): value for key, value in raw_options.items()}
+        if {"binary", "executable"} & set(options):
+            raise ValueError(
+                f"tool {tool_id} executable belongs in the trusted user installation registry"
+            )
+        if isinstance(options.get("config_path"), str):
+            options["config_path"] = _resolve_profile_path(
+                base,
+                options["config_path"],
+                field_name=f"tools.{tool_id}.config_path",
+                require_repo_local=require_repo_local,
+            )
+        tools[tool_id] = options
+    return tools
 
 
 def load_profile(ref: str | Path) -> RepoProfile:
@@ -116,21 +241,76 @@ def load_profile(ref: str | Path) -> RepoProfile:
         else:
             path = (PROFILES_DIR / f"{path.name}.yaml").resolve()
     data = _load_yaml(path)
-    base = Path(str(data["repo_path"]))
+    raw_repo = str(data["repo_path"]).strip()
+    declared_repo = Path(raw_repo)
+    if not declared_repo.is_absolute():
+        declared_repo = (path.parent / declared_repo).resolve()
+    else:
+        declared_repo = declared_repo.resolve()
+    if _is_repo_local_profile(path):
+        expected_repo = path.parent.parent.resolve()
+        # Legacy repo-local profiles used "." under a process-cwd interpretation.
+        # It is accepted as an ownership marker but never used as a path.
+        if declared_repo != expected_repo and raw_repo != ".":
+            raise ValueError("repo-local profile repo_path must resolve to its owning repository")
+        base = expected_repo
+    else:
+        base = declared_repo
+    require_repo_local = not _is_moth_owned_profile(path)
+    complexity_command = [
+        _expand_command_part(part) for part in data.get("complexity_command") or []
+    ]
+    if require_repo_local and complexity_command:
+        raise ValueError("non-bundled profiles cannot select external complexity executables")
     baseline_path = data.get("complexity_baseline_path")
     return RepoProfile(
         kind=str(data.get("kind", "profile")),
         name=str(data["name"]),
         repo_path=base,
-        codegraph_root=_resolve(base, data["codegraph_root"]),
-        complexity_command=[_expand_command_part(part) for part in data.get("complexity_command") or []],
-        complexity_baseline_path=_resolve(base, baseline_path) if baseline_path else None,
+        codegraph_root=_resolve_profile_path(
+            base,
+            data["codegraph_root"],
+            field_name="codegraph_root",
+            require_repo_local=require_repo_local,
+        ),
+        complexity_command=complexity_command,
+        complexity_baseline_path=(
+            _resolve_profile_path(
+                base,
+                baseline_path,
+                field_name="complexity_baseline_path",
+                require_repo_local=require_repo_local,
+            )
+            if baseline_path
+            else None
+        ),
         complexity_excludes=_load_complexity_excludes(data),
         complexity_ignored_path_parts=_load_ignored_path_parts(data),
-        evidence_paths=_load_evidence_paths(data, base),
+        evidence_paths=_load_evidence_paths(
+            data,
+            base,
+            require_repo_local=require_repo_local,
+        ),
         instruction_sources=_load_instruction_sources(data),
-        assertion_packs=[_resolve(base, item) for item in (data.get("assertion_packs") or [])],
-        import_cycles=_load_import_cycles(data),
+        assertion_packs=[
+            _resolve_profile_path(
+                base,
+                item,
+                field_name=f"assertion_packs[{index}]",
+                require_repo_local=require_repo_local,
+            )
+            for index, item in enumerate(data.get("assertion_packs") or [])
+        ],
+        import_cycles=_load_import_cycles(
+            data,
+            base,
+            require_repo_local=require_repo_local,
+        ),
+        tools=_load_tools(
+            data,
+            base,
+            require_repo_local=require_repo_local,
+        ),
         notes=str(data.get("notes", "")),
     )
 
@@ -161,7 +341,10 @@ def match_profile(repo_path: str | Path) -> RepoProfile | None:
     target = Path(repo_path).resolve()
     local_profile_path = target / ".moth" / "profile.yaml"
     if local_profile_path.exists():
-        return load_profile(local_profile_path)
+        profile = load_profile(local_profile_path)
+        if profile.repo_path.resolve() != target:
+            raise ValueError("repo-local profile cannot redirect inspection to another repository")
+        return profile
     for profile in list_profiles():
         if profile.repo_path.resolve() == target:
             return profile

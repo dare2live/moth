@@ -1,0 +1,36 @@
+{
+  "commits": [
+    {
+      "author": "Private Person <private@example.test>",
+      "commit_hash": "b6faa0ce1d9e26f3a487fa61eda39f2a2dc3fd6e",
+      "contributing_factors": {
+        "entropy": 0.09,
+        "file_churn": 0.1,
+        "lines_added": 0.16
+      },
+      "file_risk": {
+        "max_churn": 1.0,
+        "max_complexity": 14.6
+      },
+      "files_modified": [
+        "src/moth/cli.py",
+        "src/moth/report.py"
+      ],
+      "message": "private release details and customer@example.test",
+      "recommendations": [
+        "Large addition"
+      ],
+      "risk_level": "high",
+      "risk_score": 0.72,
+      "timestamp": "2026-07-23T08:05:31Z"
+    }
+  ],
+  "commits_omitted": 8,
+  "generated_at": "2026-07-23T08:25:49Z",
+  "period_days": 30,
+  "summary": {
+    "avg_risk_score": 0.36,
+    "high_risk_count": 1,
+    "total_commits": 10
+  }
+}

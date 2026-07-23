@@ -1,0 +1,48 @@
+kind: moth_tool_contract
+schema_version: 1
+id: omen
+adapter_protocol: moth.external_tool.v1
+compatibility:
+  strategy: runtime_contract_probe
+  version:
+    argv: ["{binary}", "--version"]
+    evidence_only: true
+process:
+  environment_allowlist: [PATH, LANG, LC_ALL, LC_CTYPE, TMPDIR]
+  shadow_config_paths: [omen.toml, .omen/omen.toml]
+bounds:
+  max_findings: 100
+  default_timeout_seconds: 60
+  max_timeout_seconds: 300
+profile:
+  allowed_keys: [enabled, required, config_path, top, diff_target, timeout_seconds]
+  required_when_enabled: [config_path]
+  defaults:
+    enabled: false
+    required: false
+    top: 20
+    diff_target: null
+    timeout_seconds: 60
+capabilities:
+  hotspot:
+    required: true
+    normalizer: hotspot_v1
+    argv: ["{binary}", "--path", "{repo}", "--format", json, "--compact", "--config", "{config}", "--no-cache", hotspot, "--top", "{limit}"]
+  changes:
+    required: true
+    normalizer: changes_v1
+    argv: ["{binary}", "--path", "{repo}", "--format", json, "--compact", "--config", "{config}", "--no-cache", changes, "--top", "{limit}"]
+  diff:
+    required: false
+    normalizer: diff_v1
+    argv: ["{binary}", "--path", "{repo}", "--format", json, "--compact", "--config", "{config}", "--no-cache", diff, "--target", "{target}"]
+vocabulary:
+  hotspot_severities: [critical, high, moderate, medium, low, info]
+  risk_levels: [critical, high, medium, low]
+fields:
+  hotspot_numeric: [avg_complexity, churn_percentile, commits, complexity_percentile, score]
+  hotspot_summary: [critical_count, high_count, moderate_count, medium_count, low_count, total_hotspots]
+  change_factors: [entropy, experience, file_churn, file_complexity, fix, lines_added, lines_deleted, num_developers, num_files, ownership_diffusion, unique_changes]
+  file_risk: [max_churn, max_complexity, ownership_diffusion]
+  changes_summary: [avg_risk_score, bug_fix_count, high_risk_count, low_risk_count, medium_risk_count, p50_risk_score, p95_risk_score, total_commits]
+  diff_numeric: [commits, files_modified, lines_added, lines_deleted, score]

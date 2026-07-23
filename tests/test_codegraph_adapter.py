@@ -21,8 +21,8 @@ def test_status_json_reports_pending_changes_as_stale(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        subprocess,
-        "run",
+        codegraph,
+        "run_safe_process",
         lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout=stdout, stderr=""),
     )
 

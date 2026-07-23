@@ -1,0 +1,139 @@
+kind: moth_major_upgrade_ledger
+schema_version: 1
+authority:
+  plan: Moth_Next_大版本升级方案.md
+  operating_rules: AGENTS.md
+  repository: .
+completion_rule:
+  allowed_stage_states: [NOT_STARTED, IN_PROGRESS, PARTIAL, COMPLETE, BLOCKED]
+  project_complete_when:
+    - every_stage_is_COMPLETE
+    - full_test_suite_passes
+    - codegraph_is_fresh
+    - moth_self_inspection_has_no_required_residual
+    - omen_required_checks_are_compatible_and_complete
+    - independent_rule10_review_is_PASS
+    - worktree_is_committed_and_clean
+  project_blocked_when:
+    - same_external_blocker_confirmed_in_three_consecutive_goal_turns
+global_gates:
+  - id: public_contract_tests
+    command: [python3, -m, pytest, -q]
+  - id: diff_integrity
+    command: [git, diff, --check]
+  - id: codegraph_freshness
+    command: [codegraph, status]
+  - id: moth_single_entry
+    command:
+      - python3
+      - -m
+      - moth.cli
+      - inspect
+      - --repo
+      - .
+      - --profile
+      - .moth/profile.yaml
+      - --task-kind
+      - architecture_orchestration
+      - --plan-only
+      - --format
+      - json
+stages:
+  - id: stage_0
+    title: 本机现状审计
+    state: PARTIAL
+    evidence:
+      - Moth_Next_大版本升级方案.md
+      - src/moth/guidance.py
+      - docs/major-upgrade-ledger.yaml
+    residual:
+      - 消除已安装包元数据与源码版本漂移
+      - 固化全量上游兼容矩阵
+  - id: stage_1
+    title: 统一项目模型
+    state: IN_PROGRESS
+    evidence:
+      - src/moth/project_model.py
+      - src/moth/detectors/python_project.py
+      - schemas/moth.project-model.schema.json
+      - tests/test_project_model.py
+      - tests/test_python_project_detector.py
+    residual:
+      - 为 Apple Web 小程序 数据项目增加证据驱动 detector
+      - 建立跨 detector 合并和冲突合同
+  - id: stage_2
+    title: Mio 与架构师协作上下文闭环
+    state: IN_PROGRESS
+    evidence:
+      - src/moth/guidance_registry.py
+      - src/moth/decision_context.py
+      - src/moth/orchestration.py
+      - src/moth/inspection.py
+      - schemas/moth.decision-context.schema.json
+    residual:
+      - 交付 host-native 可验证 executor bridge 当前仅有诚实的 SELF_ATTESTED 状态
+      - 实现冲突回报和 APPLIED_WITH_EVIDENCE 状态
+      - 用 host-native 可信遥测把 SELF_ATTESTED 提升到 READY
+  - id: stage_3
+    title: 最小可视化闭环
+    state: NOT_STARTED
+    evidence: []
+    residual:
+      - 首页项目身份 状态 五件事 不建议做
+      - 统一问题解释卡
+      - HTML 产物和浏览器验收
+  - id: stage_4
+    title: 逐层架构浏览
+    state: NOT_STARTED
+    evidence: []
+    residual:
+      - 项目全景 系统架构 技术栈 模块流程 代码 证据六层
+      - As-Is 与 To-Be 分离
+      - 产品 系统 风险三视角
+  - id: stage_5
+    title: 多平台适配
+    state: NOT_STARTED
+    evidence:
+      - src/moth/detectors/python_project.py
+    residual:
+      - Apple
+      - Web
+      - 微信与其他小程序
+      - 数据与 AI
+      - 多仓库与混合项目
+  - id: stage_6
+    title: 风险关联与变化分析
+    state: PARTIAL
+    evidence:
+      - src/moth/adapters/codegraph.py
+      - src/moth/adapters/complexity.py
+      - src/moth/adapters/omen.py
+      - src/moth/tool_evidence.py
+      - src/moth/tool_contracts/omen.yaml
+      - src/moth/safe_process.py
+    residual:
+      - 统一影响范围 风险 变化证据
+      - 建立可视化风险路径
+  - id: stage_7
+    title: 变更安全工作流
+    state: PARTIAL
+    evidence:
+      - src/moth/checks/coupling.py
+      - src/moth/checks/import_cycles.py
+      - src/moth/gates.py
+    residual:
+      - 形成变更前 中 后闭环
+      - 将 affected tests 和风险证据接入单入口
+      - 验证失败退出码传播与 red-to-green
+  - id: stage_8
+    title: 工具和上游管理
+    state: PARTIAL
+    evidence:
+      - THIRD_PARTY_NOTICES.md
+      - pyproject.toml
+      - src/moth/tool_installations.py
+      - plugins/moth/.codex-plugin/plugin.json
+    residual:
+      - Moth Codex plugin 打包与安装验收
+      - CodeGraph complexity Omen 版本兼容矩阵
+      - 发行材料与迁移说明

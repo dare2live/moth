@@ -1,0 +1,2 @@
+# Moth passes this explicit config with --no-cache and strips OMEN_* variables.
+# The observed version is evidence only; compatibility comes from runtime contracts.

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/moth.decision-context.schema.json",
+  "title": "Moth Task Decision Context",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task",
+    "ordered_guidance_sources",
+    "guidance",
+    "not_applicable_sources",
+    "activation_receipts",
+    "missing_required_sources",
+    "self_attested_required_sources",
+    "context_readiness",
+    "project_health_affected"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "moth.decision_context.v1"
+    },
+    "task": {
+      "type": "object",
+      "required": ["kind", "run_id"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "mechanical",
+            "substantive_judgment",
+            "architecture_orchestration",
+            "high_risk_change",
+            "audit_research"
+          ]
+        },
+        "run_id": {"$ref": "#/$defs/id"}
+      },
+      "additionalProperties": false
+    },
+    "ordered_guidance_sources": {
+      "$ref": "#/$defs/id_list"
+    },
+    "guidance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "discovery_state",
+          "applicability",
+          "receipt_state",
+          "application_state"
+        ],
+        "properties": {
+          "source_id": {
+            "$ref": "#/$defs/id"
+          },
+          "discovery_state": {
+            "type": "string",
+            "enum": ["UNAVAILABLE", "INVALID", "DISCOVERED"]
+          },
+          "applicability": {
+            "type": "string",
+            "enum": ["OPTIONAL", "REQUIRED"]
+          },
+          "receipt_state": {
+            "type": "string",
+            "enum": ["NONE", "SELF_ATTESTED", "PLATFORM_VERIFIED", "INVALID", "STALE"]
+          },
+          "application_state": {
+            "type": "string",
+            "enum": ["NOT_CLAIMED", "APPLIED_WITH_EVIDENCE"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "not_applicable_sources": {
+      "$ref": "#/$defs/id_list"
+    },
+    "activation_receipts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "receipt_state",
+          "attestation_kind"
+        ],
+        "properties": {
+          "source_id": {
+            "$ref": "#/$defs/id"
+          },
+          "receipt_state": {"enum": ["SELF_ATTESTED", "PLATFORM_VERIFIED", "INVALID", "STALE"]},
+          "attestation_kind": {"const": "executor_self_attested"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "missing_required_sources": {
+      "$ref": "#/$defs/id_list"
+    },
+    "self_attested_required_sources": {
+      "$ref": "#/$defs/id_list"
+    },
+    "context_readiness": {
+      "type": "string",
+      "enum": ["READY", "SELF_ATTESTED", "BLOCKED"]
+    },
+    "project_health_affected": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+    },
+    "id_list": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    }
+  },
+  "additionalProperties": false
+}

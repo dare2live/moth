@@ -6,6 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Sequence
 
+from moth.safe_process import run_safe_process
+
 # 防御层: agent worktree 副本/依赖目录不算复杂度回归 (lifehack 实战: .claude/worktrees/
 # 里的 agent 副本被扫出 80 个假 new_high 拦 push)。run_analysis 不动 —— 外部
 # analyze_complexity.py 自有 --exclude; 本层保证即使外部扫了, diff 也不误报。
@@ -278,11 +280,8 @@ def run_analysis(
         return _run_builtin(root, excludes)
     normalized_command = _force_json_format(command)
     try:
-        completed = subprocess.run(
+        completed = run_safe_process(
             normalized_command,
-            check=False,
-            capture_output=True,
-            text=True,
             cwd=str(Path(root)),
         )
         returncode = completed.returncode

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Moth Controller"
+  short_description: "One-call project audit and controller orchestration"
+  default_prompt: "Use $moth to inspect this project and carry the task through its evidence gates."

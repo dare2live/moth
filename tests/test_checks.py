@@ -34,3 +34,26 @@ def test_profile_without_complexity_command_is_not_an_issue(tmp_path) -> None:
         codegraph_root=repo,
     )
     assert check_profile(profile) == []
+
+
+def test_profile_checks_required_omen_config_exists(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    missing_config = repo / ".moth" / "omen.toml"
+    profile = RepoProfile(
+        kind="profile",
+        name="omen-sample",
+        repo_path=repo,
+        codegraph_root=repo,
+        tools={
+            "omen": {
+                "enabled": True,
+                "required": True,
+                "config_path": missing_config,
+            }
+        },
+    )
+
+    assert check_profile(profile) == [
+        f"missing omen config: {missing_config}"
+    ]

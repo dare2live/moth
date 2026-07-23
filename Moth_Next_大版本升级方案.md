@@ -1326,35 +1326,46 @@ body_exported: false
 - 远程模型获得什么上下文必须留下 egress 记录；
 - Moth 不缓存 Mio 的“精简摘要”，避免形成第二真相源。
 
-## 19.7 当前实现差距
+## 19.7 Mio 与架构师的组合顺序
 
-第一轮实现后的本机现状是：
+Moth 不把 Mio 和架构师做成两个需要用户记忆的入口。用户只调用 Moth，Moth 根据
+用户级 Guidance 注册表生成有序计划：
 
-- `RepoProfile` 已有 `evidence_paths` 和 `instruction_sources`；
-- Profile、Workspace 和 Snapshot 已能输出脱敏的 `instruction_sources`；
-- `skill:<id>` 可从 `${CODEX_HOME:-~/.codex}` 解析并验证 frontmatter 身份、
-  SHA-256 digest 和 mtime；
-- 公共状态仅允许 `UNAVAILABLE / INVALID / DISCOVERED`，调用方注入的
-  `LOADED / APPLIED_WITH_EVIDENCE`、receipt、正文和绝对路径会被丢弃；
-- Snapshot JSON Schema 已声明 `moth.guidance.v1`；
-- `evidence_paths` 会检查文件是否存在；
-- 当前 Profile 已能暴露若干 `skill_*` evidence path。
+```text
+Mio collaboration_lens
+→ architect-controller controller_protocol
+→ 可选的项目专属 controller
+```
 
-尚未实现的是任务分类、Controller 加载回执、`DecisionContext`、
-`ActivationReceipt`、STALE 判定和“已应用”证据；这些不能由 discovery 结果推断。
+顺序由 `load_after` DAG 决定，不用整数优先级冒充跨权威裁决。Mio 定义协作与判断
+视角，架构师定义真相源、边界、证伪门禁和收口协议；二者都不能覆盖项目自己的业务
+权威。任何环或缺失依赖都 fail closed。
+
+## 19.8 当前实现进度与诚实边界
+
+截至 2026-07-23，已经实现：
+
+- 用户级 Guidance 注册表与项目 Profile 合并；
+- Mio → architect-controller 的 DAG 顺序；
+- 任务分类、`DecisionContext`、`ActivationReceipt` 和 digest `STALE` 判定；
+- `DISCOVERED`、适用性、receipt 和 application 四个正交状态面；
+- `moth inspect` 单入口，且项目健康与任务上下文 readiness 分离；
+- Moth Codex Skill 执行桥：按计划读取真实 Skill 后只能生成
+  `SELF_ATTESTED` 自证；只有 host-native 可信遥测才能验收到 `READY`；
+- 默认输出不包含 Skill 正文、解析路径、任务原文或 amend trail。
 
 仍缺少：
 
-- 任务触发矩阵；
-- 执行器加载回执，以及 `LOADED / STALE / APPLIED_WITH_EVIDENCE` 状态机；
-- receipt digest 与当前 source digest 的失效判断；
-- 冲突报告；
+- 冲突回报和 `APPLIED_WITH_EVIDENCE` 的任务完成态；
 - 显式正文 opt-in、远程 egress 记录和分享模式；
 - `.agents`、插件 Skill 等 `codex_skill` 默认目录之外的 provider；
-- 任务绑定后的缺失、过期、冲突反例测试。
+- 插件新任务中的独立前向验收。
 
-因此第一步不是重写 Moth，也不是新建一个独立“上下文工具”，而是在现有 Profile /
-Snapshot / Takeover 链上补齐这一层。
+Moth Core 自己读取文件最多只能证明 `DISCOVERED`。只有实际 Codex/Agent 执行桥完整
+读取 Skill 并回传当前 run/source/digest 匹配的本地收据，只能把上下文判为
+`SELF_ATTESTED`；本地 helper 不能自称不可伪造证明。只有宿主签发、绑定可信
+executor contract 的遥测才能把上下文判为 `READY`；
+不得由 CLI 自签或把“找到文件”显示成“已应用”。
 
 ---
 
@@ -1381,12 +1392,15 @@ Snapshot / Takeover 链上补齐这一层。
 
 ### 阶段零实测结论（2026-07-23）
 
-- 官方上游锁定为 `panbanda/omen`，本机通过
-  `brew install panbanda/brews/omen` 安装并验证 `omen 4.25.0`；
+- 官方上游识别为 `panbanda/omen`，本机通过
+  `brew install panbanda/brews/omen` 安装；`omen 4.25.0` 只是本轮实测版本，
+  不是允许版本上限；
 - `hotspot --top 10` 与 `changes --top 10` 均能对 Moth 仓库输出紧凑 JSON，
   且运行前后未产生仓库文件；
-- 首个适配面限定为 `hotspot`、`changes`、`diff`，每种能力独立记录命令、版本、
-  退出码、解析状态和 verdict；
+- 首个适配面限定为 `hotspot`、`changes`、`diff`，记录观察到的版本和归一化状态，
+  不导出 raw stdout/stderr、作者或提交消息；
+- 兼容性以每次运行的命令能力和 JSON 输出契约探针为准，不锁定某个 minor 版本；
+  新版本契约兼容即可继续，契约变化则 fail closed 并要求更新 adapter/fixture；
 - 不把 `omen all` 设为门禁，因为聚合成功不能替代对子分析器失败的逐项判定；
 - Omen 当前公开语言清单未显式包含 Swift，因此不能用它单独声称 Apple 项目覆盖；
 - 上游仓库标注 Apache-2.0，而 Homebrew formula 的 license 字段标为 MIT；在引入
@@ -1404,21 +1418,23 @@ Snapshot / Takeover 链上补齐这一层。
 - 保留现有下游兼容性；
 - 不急于制作复杂网页。
 
-## 阶段二：Mio 协作上下文最小闭环
+## 阶段二：Mio 与架构师协作上下文最小闭环
 
 先完成一个不依赖复杂网页的机器可验收闭环：
 
 ```text
 识别任务是否属于实质判断
-→ 通过逻辑 ID 解析 skill:mio
-→ 校验身份、digest、隐私策略和适用范围
-→ Controller 返回加载回执
+→ 合并用户 Guidance 注册表与项目 Profile
+→ 按 DAG 解析 skill:mio → skill:architect-controller
+→ 校验每个来源的身份、digest、隐私策略和适用范围
+→ Codex 执行桥逐个读取并返回加载回执
 → 生成包含真相源、地基、消费者、反证和 Verdict 的 Controller Contract
 → Takeover / Snapshot 展示真实激活状态和证据完整性
 → 源 Skill 变化后旧回执自动失效
 ```
 
-这一阶段只实现通用协议，以 Mio 作为首个真实样本；不得在 Moth Core 复制 Mio 规则。
+这一阶段只实现通用协议，以 Mio 和 architect-controller 作为两个不同角色的真实样本；
+不得在 Moth Core 复制任一 Skill 正文或把发现状态冒充实际应用。
 
 ## 阶段三：最小可视化闭环
 
@@ -1495,6 +1511,10 @@ Snapshot / Takeover 链上补齐这一层。
 - 升级测试；
 - 安全升级；
 - 失败回滚。
+
+用户说“更新 Moth 相关工具和 Skill”或同义表达时，由 Moth 单入口进入维护流程：
+从官方上游盘点和更新，记录观察版本，重跑能力/输出契约探针、全量测试、插件校验与
+新任务前向验收；不得因为旧的精确版本常量阻断契约兼容的新版本。
 
 ---
 

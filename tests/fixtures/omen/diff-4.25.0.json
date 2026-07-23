@@ -1,0 +1,23 @@
+{
+  "commits": 1,
+  "factors": {
+    "entropy": 0.09,
+    "file_churn": 0.1
+  },
+  "file_risk": {
+    "max_churn": 1.0,
+    "max_complexity": 14.6
+  },
+  "files_modified": 17,
+  "generated_at": "2026-07-23T08:26:19Z",
+  "level": "medium",
+  "lines_added": 2572,
+  "lines_deleted": 10,
+  "merge_base": "e37e94a92b34423c588230bdfdcfa674495a6f72",
+  "recommendations": [
+    "Large PR"
+  ],
+  "score": 0.57,
+  "source_branch": "main",
+  "target_branch": "HEAD~1"
+}

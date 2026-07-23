@@ -21,5 +21,11 @@ def check_profile(profile: RepoProfile) -> list[str]:
     for pack_path in profile.assertion_packs:
         if not Path(pack_path).exists():
             issues.append(f"missing assertion pack: {pack_path}")
+    for tool_id, options in sorted(profile.tools.items()):
+        if not isinstance(options, dict) or not options.get("enabled"):
+            continue
+        config_path = options.get("config_path")
+        if config_path is not None and not Path(config_path).is_file():
+            issues.append(f"missing {tool_id} config: {config_path}")
     # 无 complexity_command 不再是问题: 缺省 = moth 内建分析器 (moth.analyzers.complexity)。
     return issues

@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from moth.guidance_policy import ACTIVATIONS
+from moth.guidance_providers import registered_guidance_providers, resolve_guidance_path
 
 
 GUIDANCE_SCHEMA_VERSION = "moth.guidance.v1"
 _SKILL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _OWNER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _INVALID_PUBLIC_VALUE = "<invalid>"
-_ACTIVATIONS = {"always", "manual", "substantive_judgment"}
+_ACTIVATIONS = ACTIVATIONS
 _TYPED_VALUES = {
     "kind": {"collaboration_lens", "controller_protocol"},
     "requirement": {"optional", "required_when_active"},
@@ -47,7 +49,7 @@ def _public_authored_source(raw: dict[str, Any]) -> dict[str, str]:
     validators = {
         "id": bool(_SKILL_ID_RE.fullmatch(source_id)),
         "kind": values.get("kind") in _TYPED_VALUES["kind"],
-        "provider": values.get("provider") == "codex_skill",
+        "provider": values.get("provider") in registered_guidance_providers(),
         "ref": bool(_SKILL_ID_RE.fullmatch(source_id))
         and values.get("ref") == f"skill:{source_id}",
         "activation": values.get("activation") in _ACTIVATIONS,
@@ -105,6 +107,12 @@ def _skill_metadata(raw: dict[str, Any], codex_home: Path) -> tuple[dict[str, An
         "body_exported": False,
         "issues": [],
     }
+    if "load_after" in raw:
+        load_after = raw["load_after"]
+        if not isinstance(load_after, list) or not all(isinstance(item, str) for item in load_after):
+            issues.append(f"guidance source {source_label}: load_after must be a list of ids")
+        else:
+            metadata["load_after"] = list(load_after)
 
     missing_fields = [field for field in _REQUIRED_SOURCE_FIELDS if not metadata.get(field)]
     if missing_fields:
@@ -116,7 +124,7 @@ def _skill_metadata(raw: dict[str, Any], codex_home: Path) -> tuple[dict[str, An
     for field, allowed in _TYPED_VALUES.items():
         if metadata[field] not in allowed:
             issues.append(f"guidance source {source_label}: invalid {field}")
-    if metadata["provider"] != "codex_skill":
+    if metadata["provider"] not in registered_guidance_providers():
         issues.append(f"guidance source {source_label}: unsupported provider")
     if not _SKILL_ID_RE.fullmatch(source_id):
         issues.append("guidance source has invalid id")
@@ -130,8 +138,8 @@ def _skill_metadata(raw: dict[str, Any], codex_home: Path) -> tuple[dict[str, An
         metadata["issues"] = list(issues)
         return metadata, issues, warnings
 
-    skill_path = codex_home / "skills" / source_id / "SKILL.md"
-    if not skill_path.is_file():
+    skill_path = resolve_guidance_path(metadata["provider"], source_id, codex_home)
+    if skill_path is None:
         warning = f"guidance source {source_id}: skill is unavailable"
         warnings.append(warning)
         metadata["issues"] = [warning]
@@ -247,9 +255,15 @@ def sanitize_instruction_sources(instruction_sources: dict[str, Any]) -> dict[st
     if not isinstance(configured, list):
         public["sources"] = []
         return public
-    public["sources"] = [
-        _public_authored_source(raw)
-        for raw in configured
-        if isinstance(raw, dict)
-    ]
+    public["sources"] = []
+    for raw in configured:
+        if not isinstance(raw, dict):
+            continue
+        item: dict[str, Any] = _public_authored_source(raw)
+        if isinstance(raw.get("load_after"), list) and all(
+            isinstance(value, str) and _SKILL_ID_RE.fullmatch(value)
+            for value in raw["load_after"]
+        ):
+            item["load_after"] = list(raw["load_after"])
+        public["sources"].append(item)
     return public

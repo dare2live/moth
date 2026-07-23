@@ -17,11 +17,13 @@ from moth.checks.import_cycles import audit_import_cycles_for_profile
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
 from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
+from moth.project_model import build_project_model
 from moth.profiles.loader import RepoProfile
 from moth.profiles.loader import discover_profiles
 from moth.profiles.loader import list_profiles
 from moth.schema import SNAPSHOT_SCHEMA_VERSION
 from moth.schema import utc_now_iso
+from moth.tool_evidence import collect_tool_evidence, tool_health_messages
 
 
 def _jsonable(value: Any) -> Any:
@@ -115,6 +117,8 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     assertions = run_assertion_packs(profile.assertion_packs, profile.repo_path)
     coupling = run_coupling_orphans(profile.repo_path)
     guidance = resolve_guidance_sources(profile.instruction_sources)
+    project_model = build_project_model(profile.repo_path)
+    tool_evidence = collect_tool_evidence(profile)
     # 可选功能: profile 配置了 import_cycles 才跑, 未配置不惩罚 (SKIP)。
     if profile.import_cycles:
         import_cycles = audit_import_cycles_for_profile(profile)
@@ -126,11 +130,16 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     warnings.extend(_warnings_from_codegraph(codegraph))
     warnings.extend(_warnings_from_complexity(complexity))
     warnings.extend(_complexity_excludes_warning(profile))
+    tool_issues, tool_warnings = tool_health_messages(tool_evidence)
+    issues.extend(tool_issues)
+    warnings.extend(tool_warnings)
     if guidance["verdict"] == "WARN":
         warnings.extend(f"guidance: {item}" for item in guidance["warnings"])
 
     if guidance["verdict"] == "FAIL":
         issues.extend(f"guidance: {item}" for item in guidance["issues"])
+    if project_model["verdict"] == "FAIL":
+        issues.extend(f"project model: {item}" for item in project_model["coverage"]["issues"])
     if codegraph.get("verdict") == "FAIL":
         issues.extend(codegraph.get("issues") or ["codegraph status failed"])
     if complexity.get("verdict") == "FAIL":
@@ -167,6 +176,8 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         "complexity": _jsonable(complexity),
         "coupling": _jsonable(coupling),
         "guidance": _jsonable(guidance),
+        "project_model": _jsonable(project_model),
+        "tool_evidence": _jsonable(tool_evidence),
         "import_cycles": _jsonable(import_cycles),
         "assertions": _jsonable(assertions),
     }
@@ -411,6 +422,24 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(_render_list("Guidance issues", guidance["issues"]))
     if guidance.get("warnings"):
         lines.extend(_render_list("Guidance warnings", guidance["warnings"]))
+    lines.append("")
+    project_model = report.get("project_model") or {}
+    lines.append("## Project model")
+    lines.append(f"- Verdict: `{project_model.get('verdict', 'UNKNOWN')}`")
+    lines.append("")
+    lines.append("## External tool evidence")
+    tools = (report.get("tool_evidence") or {}).get("tools") or {}
+    if not tools:
+        lines.append("- No external tools configured.")
+    for tool_id, evidence in sorted(tools.items()):
+        lines.append(
+            f"- `{tool_id}`: `{evidence.get('state', 'UNKNOWN')}`"
+            f" (required `{bool(evidence.get('required'))}`, compatible `{evidence.get('compatible')}`)"
+        )
+        if evidence.get("version"):
+            lines.append(f"  - Observed version: `{evidence['version']}`")
+        for issue in evidence.get("issues") or []:
+            lines.append(f"  - Issue: {issue}")
     lines.append("")
     lines.extend(_render_list("Issues", report.get("issues") or []))
     lines.append("")

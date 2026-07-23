@@ -108,6 +108,40 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
     monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
     monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
+    monkeypatch.setattr(
+        report_module,
+        "collect_tool_evidence",
+        lambda _profile: {
+            "schema_version": "moth.tool-evidence.v1",
+            "tools": {
+                "omen": {
+                    "tool": "omen",
+                    "scope": "evidence_only",
+                    "state": "COMPLETE",
+                    "required": False,
+                    "version": "4.25.0",
+                    "compatible": True,
+                    "compatibility_basis": "runtime_contract_probe",
+                    "evidence": [],
+                    "issues": [],
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        report_module,
+        "build_project_model",
+        lambda _repo_path: {
+            "schema_version": "moth.project-model.v1",
+            "verdict": "PASS",
+            "project": {"id": "project:moth", "name": "moth"},
+            "applications": [],
+            "runtimes": [],
+            "modules": [],
+            "evidence": [],
+            "coverage": {"detectors": [], "issues": [], "warnings": []},
+        },
+    )
 
     payload = report_module.build_report(profile)
 
@@ -122,9 +156,17 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch, tmp_path) -> None:
     assert "resolved_path_local_only" not in payload["profile"]["instruction_sources"]["sources"][0]
     assert payload["guidance"]["verdict"] == "PASS"
     assert payload["guidance"]["sources"][0]["state"] == "DISCOVERED"
+    assert payload["project_model"]["project"]["name"] == "moth"
+    assert payload["tool_evidence"]["tools"]["omen"]["state"] == "COMPLETE"
+    assert (
+        payload["tool_evidence"]["tools"]["omen"]["scope"]
+        == "evidence_only"
+    )
     assert payload["warnings"]
     rendered = report_module.render_markdown(payload)
     assert "## Guidance" in rendered
+    assert "## Project model" in rendered
+    assert "## External tool evidence" in rendered
     assert "private amend trail" not in rendered
     assert str(skill_dir) not in rendered
 

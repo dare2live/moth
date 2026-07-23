@@ -8,7 +8,7 @@ version = "0.3.0"
 description = "Cross-repo audit atlas for architecture, governance, and startup readiness"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6.0.1"]
+dependencies = ["PyYAML>=6.0.1", "jsonschema>=4.20"]
 
 [project.optional-dependencies]
 # duckdb_sql 断言类型用; 不装时该类型 fail-closed 报清晰错误 (checks/assertions.py)
@@ -23,6 +23,9 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+moth = ["guidance_policy.yaml", "tool_contracts/*.yaml", "tool_contracts/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

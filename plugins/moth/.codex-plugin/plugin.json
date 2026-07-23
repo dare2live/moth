@@ -1,0 +1,25 @@
+{
+  "name": "moth",
+  "version": "0.3.0+codex.20260723100323",
+  "description": "One-call project audit, Guidance activation, and controller orchestration",
+  "author": {
+    "name": "Moth contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Moth",
+    "shortDescription": "One call for project truth, Mio, and architecture control.",
+    "longDescription": "Moth inspects repository evidence, activates registered Guidance such as Mio and architect-controller in order, separates executor self-attestation from host verification, and drives work through project-owned gates.",
+    "developerName": "Moth contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Project audit",
+      "Task orchestration"
+    ],
+    "defaultPrompt": [
+      "Use $moth to understand this project and complete the requested change.",
+      "Use $moth to audit this repository and verify the evidence gates.",
+      "Use $moth to plan and execute this architecture change."
+    ]
+  }
+}

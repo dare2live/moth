@@ -1,0 +1,30 @@
+kind: profile
+name: moth
+repo_path: ..
+codegraph_root: .
+complexity_command: []
+complexity_excludes:
+  - tests
+evidence_paths:
+  operating_rules: AGENTS.md
+  upgrade_plan: Moth_Next_大版本升级方案.md
+  upgrade_ledger: docs/major-upgrade-ledger.yaml
+  operating_model: docs/operating-model.md
+instruction_sources:
+  active:
+    - AGENTS.md
+    - Moth_Next_大版本升级方案.md
+    - docs/major-upgrade-ledger.yaml
+  sources: []
+import_cycles:
+  scan_paths:
+    - src/moth
+  package_prefix: moth
+tools:
+  omen:
+    enabled: true
+    required: true
+    config_path: .moth/omen.toml
+    top: 20
+    timeout_seconds: 60
+notes: Moth self-hosting profile for the Next major-upgrade acceptance loop.

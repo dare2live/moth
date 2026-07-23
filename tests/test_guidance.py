@@ -298,3 +298,32 @@ def test_skill_read_failure_does_not_export_private_path(
     assert report["sources"][0]["state"] == "INVALID"
     assert "skill read failed" in report["issues"][0]
     assert str(private_home) not in repr(report)
+
+
+def test_resolver_supports_architect_controller_ordering_metadata(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "skills" / "architect-controller"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: architect-controller\ndescription: Controller protocol.\n---\n# Architect\n",
+        encoding="utf-8",
+    )
+    source = {
+        "id": "architect-controller",
+        "kind": "controller_protocol",
+        "provider": "codex_skill",
+        "ref": "skill:architect-controller",
+        "activation": "architecture_orchestration",
+        "requirement": "required_when_active",
+        "scope": "user",
+        "owner": "user",
+        "sensitivity": "internal",
+        "egress_policy": "metadata_only",
+        "load_after": ["mio"],
+    }
+
+    report = resolve_guidance_sources({"sources": [source]}, codex_home=tmp_path)
+
+    assert report["verdict"] == "PASS"
+    assert report["sources"][0]["state"] == "DISCOVERED"
+    assert report["sources"][0]["load_after"] == ["mio"]
+    assert sanitize_instruction_sources({"sources": [source]})["sources"][0]["load_after"] == ["mio"]

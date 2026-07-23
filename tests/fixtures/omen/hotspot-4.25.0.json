@@ -1,0 +1,28 @@
+{
+  "hotspots": [
+    {
+      "avg_complexity": 14.6,
+      "churn_percentile": 98.68,
+      "commits": 19,
+      "complexity_percentile": 92.85,
+      "file": "src/moth/cli.py",
+      "score": 0.91,
+      "severity": "Critical"
+    },
+    {
+      "avg_complexity": 5.94,
+      "churn_percentile": 96.05,
+      "commits": 15,
+      "complexity_percentile": 98.97,
+      "file": "src/moth/report.py",
+      "score": 0.95,
+      "severity": "Critical"
+    }
+  ],
+  "hotspots_omitted": 14,
+  "summary": {
+    "critical_count": 2,
+    "high_count": 5,
+    "total_hotspots": 16
+  }
+}

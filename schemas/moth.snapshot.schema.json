@@ -45,6 +45,72 @@
       "type": "object",
       "additionalProperties": true
     },
+    "project_model": {
+      "$ref": "moth.project-model.schema.json"
+    },
+    "tool_evidence": {
+      "type": "object",
+      "required": ["schema_version", "tools"],
+      "properties": {
+        "schema_version": {
+          "const": "moth.tool-evidence.v1"
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "tool",
+              "scope",
+              "state",
+              "required",
+              "evidence",
+              "issues"
+            ],
+            "properties": {
+              "schema_version": {"type": "integer"},
+              "tool": {"type": "string"},
+              "scope": {"const": "evidence_only"},
+              "state": {
+                "type": "string",
+                "enum": [
+                  "DISABLED",
+                  "INVALID_CONFIG",
+                  "ADAPTER_UNAVAILABLE",
+                  "INVALID_REQUEST",
+                  "BLOCKED_SHADOW_CONFIG",
+                  "BINARY_UNAVAILABLE",
+                  "TIMEOUT",
+                  "PROCESS_ERROR",
+                  "OUTPUT_LIMIT",
+                  "VERSION_COMMAND_FAILED",
+                  "FAILED",
+                  "COMPLETE"
+                ]
+              },
+              "required": {"type": "boolean"},
+              "version": {"type": ["string", "null"]},
+              "version_state": {
+                "type": "string",
+                "enum": ["PARSED", "UNPARSED", "UNAVAILABLE"]
+              },
+              "compatible": {"type": ["boolean", "null"]},
+              "compatibility_basis": {"const": "runtime_contract_probe"},
+              "evidence": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": true}
+              },
+              "issues": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "guidance": {
       "type": "object",
       "required": ["schema_version", "verdict", "sources", "issues", "warnings"],
@@ -88,6 +154,14 @@
               "owner": {"type": "string"},
               "sensitivity": {"type": "string"},
               "egress_policy": {"type": "string"},
+              "load_after": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "uniqueItems": true
+              },
               "state": {
                 "type": "string",
                 "enum": ["UNAVAILABLE", "INVALID", "DISCOVERED"]
@@ -123,7 +197,7 @@
                     "provider": {"const": "codex_skill"},
                     "ref": {"pattern": "^skill:[A-Za-z0-9][A-Za-z0-9_-]*$"},
                     "activation": {
-                      "enum": ["always", "manual", "substantive_judgment"]
+                      "enum": ["always", "manual", "substantive_judgment", "architecture_orchestration"]
                     },
                     "requirement": {
                       "enum": ["optional", "required_when_active"]

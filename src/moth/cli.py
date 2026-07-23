@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import shlex
 import sys
+import uuid
 from pathlib import Path
 
 from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
-from moth.profiles.loader import load_profile, match_profile
+from moth.guidance_policy import TASK_KINDS
+from moth.inspection import build_inspection, render_inspection_markdown, sanitize_public_text
+from moth.profiles.loader import build_default_profile, load_profile, match_profile
 from moth.profiles.scaffold import build_profile_scaffold
 from moth.profiles.scaffold import default_profile_path
 from moth.profiles.scaffold import parse_complexity_command
@@ -27,6 +32,20 @@ from moth.workspace import render_workspace_markdown
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="moth", description="Cross-repo audit atlas")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    inspect = sub.add_parser("inspect", help="One-call portable project and task preflight")
+    inspect.add_argument("--repo", required=True)
+    inspect.add_argument("--profile")
+    inspect.add_argument(
+        "--task-kind",
+        choices=TASK_KINDS,
+        default="substantive_judgment",
+    )
+    inspect.add_argument("--run-id")
+    inspect.add_argument("--receipts")
+    inspect.add_argument("--plan-only", action="store_true")
+    inspect.add_argument("--format", choices=("markdown", "json"), default="json")
+    inspect.add_argument("--output")
 
     snapshot = sub.add_parser("snapshot", help="Emit a machine-readable repo snapshot")
     snapshot.add_argument("--repo", required=True, help="Repo path to inspect")
@@ -140,6 +159,21 @@ def _resolve_profile(repo: str, profile_ref: str | None):
     return matched
 
 
+def _resolve_inspection_profile(repo: str, profile_ref: str | None):
+    if profile_ref:
+        return load_profile(profile_ref)
+    return match_profile(repo) or build_default_profile(repo)
+
+
+def _load_receipts(path: str | None) -> list[dict[str, object]]:
+    if path is None:
+        return []
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+        raise ValueError("receipts must be a JSON array of objects")
+    return payload
+
+
 def _render_mapping_block(mapping: dict[str, object]) -> list[str]:
     return [f"  - {sub_key}: `{sub_value}`" for sub_key, sub_value in mapping.items()]
 
@@ -154,6 +188,34 @@ def _write_output(output_path: str | None, rendered: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.cmd == "inspect":
+        try:
+            receipts = _load_receipts(args.receipts)
+            profile = _resolve_inspection_profile(args.repo, args.profile)
+            payload = build_inspection(
+                profile,
+                task_kind=args.task_kind,
+                run_id=args.run_id or f"run-{uuid.uuid4().hex}",
+                receipts=receipts,
+                codex_home=Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")),
+            )
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+            payload = {
+                "schema_version": "moth.inspection.v1",
+                "status": "FAIL",
+                "project_health": "UNKNOWN",
+                "context_readiness": "BLOCKED",
+                "issues": [sanitize_public_text(exc)],
+            }
+        rendered = render_json(payload) + "\n" if args.format == "json" else render_inspection_markdown(payload)
+        _write_output(args.output, rendered)
+        sys.stdout.write(rendered)
+        if payload["status"] == "FAIL":
+            return 1
+        if payload["status"] == "NEEDS_EXECUTOR" and not args.plan_only:
+            return 2
+        return 0
 
     if args.cmd == "assert":
         from moth.checks.assertions import run_assertion_packs

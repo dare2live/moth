@@ -44,3 +44,29 @@ def test_orphans_reports_missing_repo_local_moth_profile_paths(tmp_path) -> None
     assert any("complexity_baseline_path" in item for item in result["fails"])
     assert any("evidence_paths.agents" in item for item in result["fails"])
     assert any("assertion_packs" in item for item in result["fails"])
+
+
+def test_orphans_resolves_portable_profile_repo_path_from_profile_directory(
+    tmp_path,
+) -> None:
+    repo = tmp_path
+    (repo / ".moth").mkdir()
+    (repo / "docs").mkdir()
+    (repo / "docs" / "plan.md").write_text("# plan\n", encoding="utf-8")
+    (repo / ".moth/profile.yaml").write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                "repo_path: ..",
+                "codegraph_root: .",
+                "evidence_paths:",
+                "  plan: docs/plan.md",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = orphans(repo)
+
+    assert not any(item.startswith("T4b ") for item in result["fails"])

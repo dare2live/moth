@@ -5,6 +5,108 @@ import yaml
 from moth.cli import main
 
 
+def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    captured_call = {}
+
+    def fake_inspection(
+        profile,
+        *,
+        task_kind,
+        run_id,
+        receipts,
+        codex_home,
+    ):
+        captured_call.update(
+            {
+                "profile": profile.name,
+                "task_kind": task_kind,
+                "run_id": run_id,
+                "receipts": receipts,
+                "codex_home": codex_home,
+            }
+        )
+        return {
+            "schema_version": "moth.inspection.v1",
+            "status": "NEEDS_EXECUTOR",
+            "project_health": "PASS",
+            "context_readiness": "BLOCKED",
+            "snapshot": {"status": "PASS"},
+            "orchestration": {
+                "decision_context": {
+                    "ordered_guidance_sources": [
+                        "mio",
+                        "architect-controller",
+                    ]
+                }
+            },
+        }
+
+    monkeypatch.setattr("moth.cli.build_inspection", fake_inspection)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+
+    code = main(
+        [
+            "inspect",
+            "--repo",
+            "/Users/dp/Documents/M/stock/chunkymonkey",
+            "--profile",
+            "chunkymonkey",
+            "--task-kind",
+            "architecture_orchestration",
+            "--run-id",
+            "run-001",
+            "--plan-only",
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["status"] == "NEEDS_EXECUTOR"
+    assert captured_call == {
+        "profile": "chunkymonkey",
+        "task_kind": "architecture_orchestration",
+        "run_id": "run-001",
+        "receipts": [],
+        "codex_home": tmp_path,
+    }
+
+
+def test_inspect_uses_ephemeral_profile_without_writing_target_repo(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    repo = tmp_path / "unconfigured"
+    repo.mkdir()
+    seen = {}
+
+    def fake_inspection(profile, **_kwargs):
+        seen["kind"] = profile.kind
+        seen["repo_path"] = profile.repo_path
+        return {
+            "schema_version": "moth.inspection.v1",
+            "status": "READY",
+            "project_health": "PASS",
+            "context_readiness": "READY",
+            "snapshot": {"status": "PASS"},
+            "orchestration": {"decision_context": {}},
+        }
+
+    monkeypatch.setattr("moth.cli.build_inspection", fake_inspection)
+
+    code = main(["inspect", "--repo", str(repo), "--format", "json"])
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "READY"
+    assert seen == {
+        "kind": "ephemeral_profile",
+        "repo_path": repo.resolve(),
+    }
+    assert not (repo / ".moth").exists()
+
+
 def test_snapshot_emits_json_for_chunkymonkey(capsys, monkeypatch) -> None:
     monkeypatch.setattr(
         "moth.cli.build_snapshot",
@@ -341,8 +443,6 @@ def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:
             str(repo),
             "--name",
             "sample-repo",
-            "--complexity-command",
-            "python -m moth",
             "--evidence-path",
             "goal=goal.md",
             "--output",
@@ -358,7 +458,7 @@ def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:
     payload = yaml.safe_load(output.read_text(encoding="utf-8"))
     assert payload["kind"] == "profile"
     assert payload["name"] == "sample-repo"
-    assert payload["complexity_command"] == ["python", "-m", "moth"]
+    assert payload["complexity_command"] == []
     assert payload["evidence_paths"]["goal"] == "goal.md"
 
 

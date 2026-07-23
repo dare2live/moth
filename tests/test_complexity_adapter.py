@@ -1,6 +1,7 @@
 import json
 import sys
 
+from moth.adapters import complexity as complexity_adapter
 from moth.adapters.complexity import DEFAULT_IGNORED_PATH_PARTS
 from moth.adapters.complexity import build_complexity_diff_report
 from moth.adapters.complexity import command_for_target
@@ -242,8 +243,7 @@ def test_run_analysis_for_paths_builtin_missing_target_fails(tmp_path) -> None:
 
 
 def test_run_analysis_explicit_command_still_uses_subprocess(tmp_path, monkeypatch) -> None:
-    # 显式 command 仍走子进程路径 (mock subprocess.run, 不真跑)。
-    import subprocess as subprocess_module
+    # 显式 command 仍走共享安全进程边界（不真跑外部程序）。
 
     calls = {}
 
@@ -257,7 +257,7 @@ def test_run_analysis_explicit_command_still_uses_subprocess(tmp_path, monkeypat
 
         return Completed()
 
-    monkeypatch.setattr(subprocess_module, "run", fake_run)
+    monkeypatch.setattr(complexity_adapter, "run_safe_process", fake_run)
 
     result = run_analysis(tmp_path, ["python", "/tool/scanner.py", str(tmp_path), "--format", "markdown"])
 

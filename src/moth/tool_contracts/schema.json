@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "id", "adapter_protocol", "compatibility", "process", "bounds", "profile", "capabilities", "vocabulary", "fields"],
+  "properties": {
+    "kind": {"const": "moth_tool_contract"},
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "adapter_protocol": {"const": "moth.external_tool.v1"},
+    "compatibility": {
+      "type": "object", "additionalProperties": false, "required": ["strategy", "version"],
+      "properties": {
+        "strategy": {"const": "runtime_contract_probe"},
+        "version": {
+          "type": "object", "additionalProperties": false, "required": ["argv", "evidence_only"],
+          "properties": {"argv": {"$ref": "#/$defs/argv"}, "evidence_only": {"const": true}}
+        }
+      }
+    },
+    "process": {
+      "type": "object", "additionalProperties": false, "required": ["environment_allowlist", "shadow_config_paths"],
+      "properties": {
+        "environment_allowlist": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}, "uniqueItems": true},
+        "shadow_config_paths": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "bounds": {
+      "type": "object", "additionalProperties": false, "required": ["max_findings", "default_timeout_seconds", "max_timeout_seconds"],
+      "properties": {
+        "max_findings": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "default_timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "max_timeout_seconds": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false, "required": ["allowed_keys", "required_when_enabled", "defaults"],
+      "properties": {
+        "allowed_keys": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "required_when_enabled": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "defaults": {"type": "object"}
+      }
+    },
+    "capabilities": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["required", "normalizer", "argv"],
+        "properties": {
+          "required": {"type": "boolean"},
+          "normalizer": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "argv": {"$ref": "#/$defs/argv"}
+        }
+      }
+    },
+    "vocabulary": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}},
+    "fields": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}
+  },
+  "$defs": {"argv": {"type": "array", "minItems": 1, "items": {"type": "string"}}}
+}
