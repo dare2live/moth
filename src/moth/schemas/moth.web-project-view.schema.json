@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moth.local/schemas/moth.web-project-view.schema.json",
+  "title": "Moth Web Project View",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project",
+    "execution_policy",
+    "inspection",
+    "visual_document"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "moth.web-project-view.v1"
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "description": {"type": "string"}
+      }
+    },
+    "execution_policy": {
+      "const": "safe_view"
+    },
+    "inspection": {
+      "type": "object"
+    },
+    "visual_document": {
+      "type": "object"
+    }
+  }
+}

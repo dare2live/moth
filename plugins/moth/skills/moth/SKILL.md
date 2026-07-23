@@ -55,6 +55,23 @@ not run collectors, know platform/tool-specific schemas, or invent priorities,
 To-Be architecture, flows, or risk claims that are absent from the inspection
 evidence.
 
+When the user wants to browse several configured projects or inspect the
+portable contracts through a local API, keep the same Moth entry:
+
+```bash
+moth init --repo <repo> --register-web
+moth serve
+```
+
+Open the complete loopback URL printed by Moth. The browser project selector
+can request only allowlisted project IDs. Web requests always use
+`safe_view`: they never run repository assertion packs, profile-selected
+external complexity commands, configurable tool adapters, change gates, or
+arbitrary paths. Do not weaken this boundary to make a project appear greener.
+The API must return only the portable inspection and validated
+`moth.visual-document.v1`; use the in-page API JSON action when the user wants
+the raw contract.
+
 ## 3. Load every planned Guidance source
 
 Read `orchestration.decision_context.ordered_guidance_sources` in order. For

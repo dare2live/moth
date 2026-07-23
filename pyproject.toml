@@ -31,6 +31,8 @@ moth = [
   "visual_policy.yaml",
   "architecture_policy.yaml",
   "change_safety_policy.yaml",
+  "web_policy.yaml",
+  "web_assets/*",
   "detectors/*.yaml",
   "detectors/*.json",
   "schemas/*.json",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from moth.adapters.codegraph import run_affected as run_codegraph_affected
@@ -87,49 +87,90 @@ def _complexity_excludes_warning(profile: RepoProfile) -> list[str]:
     return []
 
 
-def build_report(profile: RepoProfile) -> dict[str, Any]:
-    issues = check_profile(profile)
-    dirty = git_status(profile.repo_path)
-    codegraph = run_codegraph_status(profile.codegraph_root)
+def build_report(
+    profile: RepoProfile,
+    *,
+    execution_policy: str = "full",
+) -> dict[str, Any]:
+    if execution_policy not in {"full", "safe_view"}:
+        raise ValueError(f"unsupported execution policy: {execution_policy}")
+    effective_profile = (
+        replace(
+            profile,
+            complexity_command=[],
+            assertion_packs=[],
+            tools={},
+        )
+        if execution_policy == "safe_view"
+        else profile
+    )
+    issues = check_profile(effective_profile)
+    dirty = (
+        git_status(effective_profile.repo_path, isolate_repo_extensions=True)
+        if execution_policy == "safe_view"
+        else git_status(effective_profile.repo_path)
+    )
+    codegraph = run_codegraph_status(effective_profile.codegraph_root)
     # complexity_command 缺省 = 内建分析器 (moth.analyzers.complexity, 进程内)。
     complexity = run_complexity_analysis(
-        profile.repo_path,
-        profile.complexity_command,
-        excludes=profile.complexity_excludes,
+        effective_profile.repo_path,
+        effective_profile.complexity_command,
+        excludes=effective_profile.complexity_excludes,
     )
-    baseline_findings, baseline_status = load_complexity_baseline(profile.complexity_baseline_path)
+    baseline_findings, baseline_status = load_complexity_baseline(
+        effective_profile.complexity_baseline_path
+    )
     diff_kwargs: dict[str, Any] = {}
-    if profile.complexity_ignored_path_parts is not None:
-        diff_kwargs["ignored_path_parts"] = profile.complexity_ignored_path_parts
+    if effective_profile.complexity_ignored_path_parts is not None:
+        diff_kwargs["ignored_path_parts"] = effective_profile.complexity_ignored_path_parts
     complexity_diff = build_complexity_diff_report(
         complexity.get("findings") or [],
         baseline_findings,
         baseline_status=baseline_status,
-        repo_root=profile.repo_path,
+        repo_root=effective_profile.repo_path,
         **diff_kwargs,
     )
     complexity["baseline"] = {
-        "path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
+        "path": (
+            str(effective_profile.complexity_baseline_path)
+            if effective_profile.complexity_baseline_path
+            else None
+        ),
         "status": baseline_status,
     }
     complexity["diff"] = complexity_diff
 
-    assertions = run_assertion_packs(profile.assertion_packs, profile.repo_path)
-    coupling = run_coupling_orphans(profile.repo_path)
-    guidance = resolve_guidance_sources(profile.instruction_sources)
-    project_model = build_project_model(profile.repo_path)
-    tool_evidence = collect_tool_evidence(profile)
+    assertions = run_assertion_packs(
+        effective_profile.assertion_packs,
+        effective_profile.repo_path,
+    )
+    coupling = (
+        run_coupling_orphans(
+            effective_profile.repo_path,
+            isolate_repo_extensions=True,
+        )
+        if execution_policy == "safe_view"
+        else run_coupling_orphans(effective_profile.repo_path)
+    )
+    guidance = resolve_guidance_sources(effective_profile.instruction_sources)
+    project_model = build_project_model(effective_profile.repo_path)
+    tool_evidence = collect_tool_evidence(effective_profile)
     # 可选功能: profile 配置了 import_cycles 才跑, 未配置不惩罚 (SKIP)。
-    if profile.import_cycles:
-        import_cycles = audit_import_cycles_for_profile(profile)
+    if effective_profile.import_cycles:
+        import_cycles = audit_import_cycles_for_profile(effective_profile)
     else:
         import_cycles = {"verdict": "SKIP", "note": "profile has no import_cycles config"}
 
     warnings = []
+    if execution_policy == "safe_view":
+        warnings.append(
+            "safe view disabled repository-configured executables: "
+            "assertion packs, external complexity commands, and tool adapters"
+        )
     warnings.extend(_warnings_from_dirty(dirty))
     warnings.extend(_warnings_from_codegraph(codegraph))
     warnings.extend(_warnings_from_complexity(complexity))
-    warnings.extend(_complexity_excludes_warning(profile))
+    warnings.extend(_complexity_excludes_warning(effective_profile))
     tool_issues, tool_warnings = tool_health_messages(tool_evidence)
     issues.extend(tool_issues)
     warnings.extend(tool_warnings)
@@ -166,6 +207,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
 
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "execution_policy": execution_policy,
         "generated_at": utc_now_iso(),
         "status": status,
         "profile": _public_profile(profile),

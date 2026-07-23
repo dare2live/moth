@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Moth Web Console</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="command-bar">
+    <a class="brand" href="/" aria-label="Moth Web Console 首页">
+      <span class="brand-mark" aria-hidden="true">M</span>
+      <span><strong>Moth</strong><small>Web Console</small></span>
+    </a>
+    <div class="project-control">
+      <label for="project-select">项目</label>
+      <select id="project-select" disabled><option>正在读取项目…</option></select>
+    </div>
+    <div class="command-actions">
+      <button id="refresh-button" type="button" disabled>刷新检查</button>
+      <button id="json-button" class="quiet" type="button" disabled>API JSON</button>
+    </div>
+  </header>
+
+  <section class="status-strip" aria-live="polite">
+    <span id="health-badge" class="badge neutral">等待</span>
+    <span id="status-summary">正在连接本地 Moth 服务。</span>
+    <span id="generated-at"></span>
+  </section>
+
+  <div class="app-shell">
+    <aside class="rail" aria-label="检查视图">
+      <button class="rail-home active" id="home-button" type="button">总览</button>
+      <div class="rail-group">
+        <h2>视角</h2>
+        <nav id="viewpoint-nav"></nav>
+      </div>
+      <div class="rail-group">
+        <h2>图层</h2>
+        <nav id="layer-nav"></nav>
+      </div>
+      <p class="safe-note"><strong>Safe view</strong><br>禁用项目 assertion、外部 complexity 命令和工具 adapter。</p>
+    </aside>
+
+    <main id="main-content" tabindex="-1">
+      <section id="welcome-state" class="state-panel">
+        <p class="eyebrow">LOCAL EVIDENCE CONSOLE</p>
+        <h1>选择一个项目，查看刚刚生成的真实证据。</h1>
+        <p>项目列表来自本机配置。每次刷新都会重新扫描，不使用历史缓存。</p>
+      </section>
+      <section id="content-view" hidden>
+        <div class="page-heading">
+          <div>
+            <p id="section-kicker" class="eyebrow">OVERVIEW</p>
+            <h1 id="section-title"></h1>
+            <p id="section-summary"></p>
+          </div>
+          <dl id="summary-metrics" class="metrics"></dl>
+        </div>
+        <div id="primary-content"></div>
+      </section>
+      <section id="error-state" class="state-panel error-panel" hidden role="alert">
+        <p class="eyebrow">REQUEST FAILED</p>
+        <h1>这次检查没有完成。</h1>
+        <p id="error-message"></p>
+        <button id="retry-button" type="button">重试</button>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="evidence-dialog" aria-labelledby="evidence-title">
+    <form method="dialog"><button class="dialog-close" aria-label="关闭证据">关闭</button></form>
+    <p class="eyebrow">EVIDENCE</p>
+    <h2 id="evidence-title">证据</h2>
+    <div id="evidence-body"></div>
+  </dialog>
+
+  <div id="loading-mask" class="loading-mask" hidden aria-live="assertive">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>正在生成 fresh safe-view inspection…</span>
+  </div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

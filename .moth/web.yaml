@@ -1,0 +1,26 @@
+schema_version: moth.web-console.v1
+server:
+  host: 127.0.0.1
+  port: 8765
+projects:
+  - id: moth
+    name: Moth
+    description: Cross-repo evidence and architecture control plane
+    repo: ..
+    profile: .moth/profile.yaml
+  - id: lifehack
+    name: LifeHack
+    description: College planning product and data platform
+    repo: ../../lifehack
+  - id: gaokao
+    name: Gaokao
+    description: Gaokao data and knowledge foundation
+    repo: ../../gaokao
+  - id: gaozhong
+    name: Gaozhong
+    description: High-school architecture control plane
+    repo: ../../gaozhong
+  - id: chunkymonkey
+    name: ChunkyMonkey
+    description: Quant research and execution platform
+    repo: ../../stock/chunkymonkey

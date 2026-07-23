@@ -171,3 +171,21 @@ stages:
       - docs/migration-next.md
       - tests/test_moth_plugin_receipts.py
     residual: []
+  - id: stage_9
+    title: 本地 Web Console 与项目 API
+    state: COMPLETE
+    evidence:
+      - .moth/web.yaml
+      - src/moth/web_policy.yaml
+      - src/moth/web_config.py
+      - src/moth/web_registry.py
+      - src/moth/web_service.py
+      - src/moth/web_app.py
+      - src/moth/web_server.py
+      - src/moth/web_assets/index.html
+      - src/moth/web_assets/app.css
+      - src/moth/web_assets/app.js
+      - src/moth/schemas/moth.web-console.schema.json
+      - src/moth/schemas/moth.web-project-view.schema.json
+      - tests/test_web_console.py
+    residual: []

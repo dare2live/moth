@@ -1,0 +1,13 @@
+kind: moth_web_policy
+config:
+  max_bytes: 262144
+  max_projects: 64
+network:
+  loopback_hosts:
+    - 127.0.0.1
+  read_timeout_seconds: 10
+api:
+  task_kind: mechanical
+  max_query_length: 2048
+  max_body_bytes: 4096
+  max_authorization_bytes: 256

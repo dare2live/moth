@@ -11,7 +11,7 @@ from moth.orchestration import prepare_task_context
 from moth.snapshot import build_snapshot
 
 
-_URL_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"`<>()\[\]{}]+")
+_URL_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*)://[^\s'\"`<>()\[\]{}]+")
 _WINDOWS_ABSOLUTE_PATH_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9_])(?:[A-Z]:[\\/]|\\\\)[^\s'\"`<>()\[\]{},;]+"
 )
@@ -28,6 +28,8 @@ def sanitize_public_text(value: Any) -> str:
     preserved_urls: list[str] = []
 
     def preserve_url(match: re.Match[str]) -> str:
+        if match.group(1).lower() not in {"http", "https"}:
+            return "<private-url>"
         preserved_urls.append(match.group(0))
         return f"\ue000moth-url-{len(preserved_urls) - 1}\ue001"
 
@@ -58,6 +60,7 @@ def _portable_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     assertions = snapshot.get("assertions") or {}
     public_snapshot = {
         "schema_version": snapshot.get("schema_version"),
+        "execution_policy": snapshot.get("execution_policy", "full"),
         "status": snapshot.get("status"),
         "issues": [sanitize_public_text(item) for item in snapshot.get("issues") or []],
         "warnings": [sanitize_public_text(item) for item in snapshot.get("warnings") or []],
@@ -118,8 +121,13 @@ def build_inspection(
     test_filter: str | None = None,
     baseline_digest: str | None = None,
     execute_gates: bool = True,
+    execution_policy: str = "full",
 ) -> dict[str, Any]:
-    raw_snapshot = build_snapshot(profile)
+    raw_snapshot = (
+        build_snapshot(profile)
+        if execution_policy == "full"
+        else build_snapshot(profile, execution_policy=execution_policy)
+    )
     orchestration = prepare_task_context(
         profile.instruction_sources,
         task_kind=task_kind,
@@ -142,6 +150,7 @@ def build_inspection(
     )
     inspection = {
         "schema_version": "moth.inspection.v1",
+        "execution_policy": execution_policy,
         "status": status,
         "project_health": project_health,
         "context_readiness": readiness,

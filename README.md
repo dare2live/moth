@@ -180,6 +180,46 @@ Entity, relation, finding, and evidence rendering budgets live in
 `visual_policy.yaml`; truncated views publish omitted counts instead of
 silently expanding the DOM.
 
+To initialize a repository and add it to the user-level project selector in
+one idempotent Moth call, run inside that repository:
+
+```bash
+moth init --repo . --register-web
+moth serve
+```
+
+Open the complete loopback URL printed by the command. Its fragment contains a
+short-lived capability token; the browser removes the fragment immediately and
+sends the token only in the `Authorization` header. The console lists only
+projects declared in the YAML registry and requests a fresh inspection with:
+
+```http
+GET  /api/v1/projects
+POST /api/v1/inspections
+Content-Type: application/json
+
+{"project_id":"moth"}
+```
+
+Web inspections always use `safe_view`: Moth runs its internal read-only
+evidence collectors but disables repository assertion packs, profile-selected
+external complexity commands, and configurable tool adapters. The response is
+the portable `moth.inspection.v1` plus a validated
+`moth.visual-document.v1`; raw repository paths, command streams, and private
+Skill bodies are not API fields. The server binds only to `127.0.0.1`, requires
+the capability token, validates Host and Origin, exposes no CORS permission,
+and accepts only one inspection at a time.
+
+The default user registry is `${MOTH_WEB_CONFIG}`, then
+`${XDG_CONFIG_HOME}/moth/web.yaml`, then `~/.config/moth/web.yaml`.
+`--web-config` and `moth serve --config` provide explicit overrides. The
+committed `.moth/web.yaml` remains a portable example for this workspace.
+Registration stores project metadata only; it never grants the browser extra
+execution authority. An explicit project `profile` must stay inside that
+repository and resolve back to the same canonical repository. Omitting
+`profile` uses an ephemeral safe-view profile, which is useful when an external
+repository's full profile contains executable or machine-private integrations.
+
 Repositories may declare current and desired architecture in
 `.moth/architecture.yaml`. The validated v2 project model owns canonical
 entities, relations, business flows, and state machines; the HTML renderer

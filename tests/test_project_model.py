@@ -55,6 +55,7 @@ def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
     assert [item["id"] for item in model["flows"]] == [
         "flow:change-safety",
         "flow:inspect",
+        "flow:web-console",
     ]
     assert [item["id"] for item in model["state_machines"]] == [
         "state-machine:inspection"

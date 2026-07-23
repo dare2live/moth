@@ -23,11 +23,28 @@ _EXCLUDE_PARTS = (".venv", "__pycache__", ".git", "node_modules", ".pytest_cache
 _SCAN_EXTS = (".py", ".yaml", ".yml", ".json", ".md", ".sh", ".toml", ".cfg")
 
 
-def _tracked_files(repo: Path) -> list[Path]:
+def _tracked_files(
+    repo: Path,
+    *,
+    isolate_repo_extensions: bool = False,
+) -> list[Path]:
     """Git-visible files (tracked + untracked, non-ignored); fallback to glob."""
     try:
+        command = ["git"]
+        if isolate_repo_extensions:
+            command.extend(
+                [
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    "core.untrackedCache=false",
+                ]
+            )
+        command.extend(["ls-files", "--cached", "--others", "--exclude-standard"])
         out = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            command,
             cwd=repo,
             capture_output=True,
             text=True,
@@ -113,7 +130,11 @@ def impact(repo: Path, name: str) -> dict:
     }
 
 
-def orphans(repo: Path) -> dict:
+def orphans(
+    repo: Path,
+    *,
+    isolate_repo_extensions: bool = False,
+) -> dict:
     """扫孤儿引用 (引用不存在实体)。返回 {verdict, fails, warns}。"""
     fails: list[str] = []
     warns: list[str] = []
@@ -122,7 +143,15 @@ def orphans(repo: Path) -> dict:
         return (repo / rel).exists()
 
     # T1: 测试 spec_from_file_location / 路径字符串引用不存在脚本 (module 级 = collection 崩根因)
-    test_files = [f for f in _tracked_files(repo) if f.suffix == ".py" and ("test" in f.name or "/tests/" in f"/{f.relative_to(repo).as_posix()}")]
+    test_files = [
+        f
+        for f in _tracked_files(
+            repo,
+            isolate_repo_extensions=isolate_repo_extensions,
+        )
+        if f.suffix == ".py"
+        and ("test" in f.name or "/tests/" in f"/{f.relative_to(repo).as_posix()}")
+    ]
     for f in test_files:
         txt = f.read_text(encoding="utf-8", errors="ignore")
         rel = f.relative_to(repo).as_posix()

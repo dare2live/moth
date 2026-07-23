@@ -6,6 +6,9 @@ evidence:
   - id: operating-model
     kind: architecture_document
     path: docs/operating-model.md
+  - id: web-console-contract
+    kind: architecture_document
+    path: README.md
 
 current:
   # This declaration covers Moth's public orchestration spine, not every helper.
@@ -60,6 +63,36 @@ current:
       responsibility: Render the visual document without owning audit truth.
       locator: src/moth/html_report.py
       evidence_ids: [upgrade-plan, operating-model]
+    - id: service:web-config
+      kind: service
+      name: Web project registry
+      responsibility: Validate the loopback server policy, project allowlist, and profile-to-repository identity.
+      locator: src/moth/web_config.py
+      evidence_ids: [web-console-contract, operating-model]
+    - id: service:web-registry
+      kind: service
+      name: User Web project registration
+      responsibility: Idempotently register initialized repositories in a user-scoped project allowlist.
+      locator: src/moth/web_registry.py
+      evidence_ids: [web-console-contract, operating-model]
+    - id: service:web-service
+      kind: service
+      name: Safe-view web service
+      responsibility: Build one portable inspection and validated visual document without repository-configured executables.
+      locator: src/moth/web_service.py
+      evidence_ids: [web-console-contract, operating-model]
+    - id: service:web-app
+      kind: service
+      name: Web API
+      responsibility: Enforce the authenticated HTTP contract and exact packaged asset routes.
+      locator: src/moth/web_app.py
+      evidence_ids: [web-console-contract, operating-model]
+    - id: application:web-console
+      kind: application
+      name: Moth Web Console
+      responsibility: Render the visual document and switch between configured projects without recomputing audit truth.
+      locator: src/moth/web_assets/index.html
+      evidence_ids: [web-console-contract, operating-model]
   relations:
     - id: relation:inspection-snapshot
       kind: calls
@@ -91,6 +124,36 @@ current:
       target_id: service:visual-model
       label: renders visual document
       evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:web-service-inspection
+      kind: calls
+      source_id: service:web-service
+      target_id: service:inspection
+      label: builds safe-view inspection
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-service-visual
+      kind: calls
+      source_id: service:web-service
+      target_id: service:visual-model
+      label: validates visual document
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-app-service
+      kind: calls
+      source_id: service:web-app
+      target_id: service:web-service
+      label: dispatches allowlisted project
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-registry-config
+      kind: writes
+      source_id: service:web-registry
+      target_id: service:web-config
+      label: maintains user project allowlist
+      evidence_ids: [web-console-contract, operating-model]
+    - id: relation:web-console-api
+      kind: depends_on
+      source_id: application:web-console
+      target_id: service:web-app
+      label: consumes authenticated API
+      evidence_ids: [web-console-contract, operating-model]
   flows:
     - id: flow:inspect
       name: One-call inspection
@@ -131,6 +194,22 @@ current:
           entity_id: service:change-safety
           action: produce GO, CAUTION, or NO_GO from normalized evidence
       evidence_ids: [upgrade-plan, operating-model]
+    - id: flow:web-console
+      name: Safe project inspection
+      steps:
+        - id: step:web-select
+          entity_id: application:web-console
+          action: select a configured project id
+        - id: step:web-authorize
+          entity_id: service:web-app
+          action: validate capability, host, origin, request shape, and concurrency
+        - id: step:web-inspect
+          entity_id: service:web-service
+          action: build a fresh safe-view inspection
+        - id: step:web-project
+          entity_id: application:web-console
+          action: render the validated visual document
+      evidence_ids: [web-console-contract, operating-model]
   state_machines:
     - id: state-machine:inspection
       entity_id: service:inspection
@@ -186,6 +265,20 @@ desired:
       locator: src/moth/change_safety.py
       expectation: REQUIRED
       evidence_ids: [upgrade-plan, operating-model]
+    - id: service:web-service
+      kind: service
+      name: Safe-view web service
+      responsibility: Build one portable inspection and validated visual document without repository-configured executables.
+      locator: src/moth/web_service.py
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
+    - id: service:web-app
+      kind: service
+      name: Web API
+      responsibility: Enforce the authenticated HTTP contract and exact packaged asset routes.
+      locator: src/moth/web_app.py
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
   relations:
     - id: relation:inspection-change-safety
       kind: calls
@@ -201,5 +294,12 @@ desired:
       label: validates Guidance application evidence
       expectation: REQUIRED
       evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:web-app-service
+      kind: calls
+      source_id: service:web-app
+      target_id: service:web-service
+      label: dispatches allowlisted project
+      expectation: REQUIRED
+      evidence_ids: [web-console-contract, operating-model]
   flows: []
   state_machines: []

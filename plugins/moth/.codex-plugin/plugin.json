@@ -1,7 +1,7 @@
 {
   "name": "moth",
-  "version": "1.0.0+codex.20260723115614",
-  "description": "One-call project audit, Guidance activation, and controller orchestration",
+  "version": "1.0.0+codex.20260723205632",
+  "description": "One-call project audit, Web Console, Guidance activation, and controller orchestration",
   "author": {
     "name": "Moth contributors"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Moth",
     "shortDescription": "One call for project truth, Mio, and architecture control.",
-    "longDescription": "Moth inspects repository evidence, activates registered Guidance such as Mio and architect-controller in order, records structured application evidence without overstating host verification, and drives work through project-owned gates.",
+    "longDescription": "Moth inspects repository evidence, serves an authenticated local multi-project atlas, activates registered Guidance such as Mio and architect-controller in order, records structured application evidence without overstating host verification, and drives work through project-owned gates.",
     "developerName": "Moth contributors",
     "category": "Productivity",
     "capabilities": [
@@ -17,12 +17,14 @@
       "Task orchestration",
       "Guidance application evidence",
       "Architecture intent",
-      "Change safety"
+      "Change safety",
+      "Local project Web Console"
     ],
     "defaultPrompt": [
       "Use $moth to understand this project and complete the requested change.",
       "Use $moth to audit this repository and verify the evidence gates.",
-      "Use $moth to plan and execute this architecture change."
+      "Use $moth to plan and execute this architecture change.",
+      "Use $moth to open the local project Web Console and API."
     ]
   }
 }
