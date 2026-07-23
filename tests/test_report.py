@@ -609,6 +609,41 @@ def test_build_affected_report_combines_codegraph_and_complexity(monkeypatch) ->
     assert "Confidence counts" in rendered
 
 
+def test_build_affected_report_does_not_green_empty_unknown_test_coverage(
+    monkeypatch,
+) -> None:
+    profile = load_profile("chunkymonkey")
+    monkeypatch.setattr(
+        report_module,
+        "run_codegraph_affected",
+        lambda *_args, **_kwargs: {
+            "verdict": "PASS",
+            "issues": [],
+            "affectedTests": [],
+            "totalDependentsTraversed": 0,
+        },
+    )
+    monkeypatch.setattr(
+        report_module,
+        "run_complexity_analysis_for_paths",
+        lambda *_args, **_kwargs: {
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [],
+            "summary": {"finding_count": 0},
+        },
+    )
+
+    payload = report_module.build_affected_report(
+        profile, ["src/moth/visual_model.py"]
+    )
+
+    assert payload["status"] == "WARN"
+    assert payload["affected_test_coverage"] == "UNKNOWN_EMPTY"
+    assert payload["coverage_complete"] is False
+    assert any("coverage unknown" in item for item in payload["warnings"])
+
+
 def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
     profile_ok = RepoProfile(
         kind="profile",

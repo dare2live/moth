@@ -1,0 +1,50 @@
+kind: moth_change_safety_policy
+schema_version: 1
+
+repository:
+  config_path: .moth/change-safety.yaml
+  max_config_bytes: 131072
+
+bounds:
+  max_changed_files: 200
+  max_path_length: 512
+  max_affected_tests: 500
+  max_entities: 500
+  max_heuristics: 500
+  max_gates: 20
+
+phases:
+  pre_change:
+    default_verdict: GO
+    require_scope: true
+    require_fresh_codegraph: true
+    require_affected_analysis: true
+    require_passing_gate: false
+  during_change:
+    default_verdict: CAUTION
+    require_scope: true
+    require_fresh_codegraph: true
+    require_affected_analysis: true
+    require_passing_gate: false
+  post_change:
+    default_verdict: GO
+    require_scope: true
+    require_fresh_codegraph: true
+    require_affected_analysis: true
+    require_passing_gate: true
+
+rules:
+  provided_gate_failure_is_no_go: true
+  empty_affected_tests_without_complete_coverage: CAUTION
+  heuristic_maximum_impact: CAUTION
+  heuristic_caution_levels: [medium, high, critical]
+  affected_test_states:
+    planned: PLANNED
+    absent: NOT_CHECKED
+  risk_order: [none, info, low, medium, high, critical]
+  coverage_complete_fields: [coverage_complete, coverageComplete]
+
+vocabulary:
+  verdicts: [GO, CAUTION, NO_GO]
+  observation_kinds: [FACT, RUNTIME_RESULT, PROJECT_ASSERTION, HEURISTIC]
+  observation_states: [PRESENT, PASS, FAIL, UNKNOWN, NOT_CHECKED, UNAVAILABLE, ERROR]

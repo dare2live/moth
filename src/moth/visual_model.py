@@ -168,6 +168,27 @@ def _copy_project_evidence(
         )
 
 
+def _copy_change_evidence(
+    inspection: dict[str, Any],
+    store: dict[str, dict[str, Any]],
+) -> None:
+    change_safety = _mapping(inspection.get("change_safety"))
+    for evidence_id, raw in _mapping(change_safety.get("evidence")).items():
+        item = _mapping(raw)
+        identifier = str(item.get("id") or evidence_id).strip()
+        if not identifier:
+            continue
+        locator = str(item.get("locator") or "moth.inspect")
+        summary = str(item.get("summary") or "change safety observation")
+        store[identifier] = _evidence(
+            identifier,
+            kind=str(item.get("observation_kind") or "change_observation"),
+            locator=locator,
+            summary=summary,
+            digest=_digest(item),
+        )
+
+
 def _build_entities(
     *,
     inspection: dict[str, Any],
@@ -190,6 +211,32 @@ def _build_entities(
         "code": [],
         "tools": [],
     }
+    unified_entities = _list(project_model.get("entities"))
+    for raw in unified_entities:
+        item = _mapping(raw)
+        entity_id = str(item.get("id") or "").strip()
+        if not entity_id:
+            continue
+        kind = str(item.get("kind") or "entity")
+        entities[entity_id] = _entity(
+            entity_id,
+            kind=kind,
+            name=str(item.get("name") or entity_id),
+            summary=str(item.get("responsibility") or "职责尚未声明。"),
+            status="OBSERVED",
+            evidence_ids=_strings(item.get("evidence_ids")),
+            attributes=(
+                {"locator": item.get("locator")} if item.get("locator") else {}
+            ),
+        )
+        if kind == "project":
+            groups["project"].append(entity_id)
+        elif kind == "runtime":
+            groups["runtimes"].append(entity_id)
+        elif kind == "application":
+            groups["applications"].append(entity_id)
+        else:
+            groups["modules"].append(entity_id)
     project = _mapping(project_model.get("project"))
     project_id = str(project.get("id") or "project:unknown")
     if project:
@@ -272,6 +319,146 @@ def _build_entities(
         )
         groups["modules"].append(module_id)
 
+    for raw in _list(project_model.get("relations")):
+        item = _mapping(raw)
+        relation_id = str(item.get("id") or "").strip()
+        source_id = str(item.get("source_id") or "").strip()
+        target_id = str(item.get("target_id") or "").strip()
+        if not relation_id or source_id not in entities or target_id not in entities:
+            continue
+        relations[relation_id] = _relation(
+            relation_id,
+            kind=str(item.get("kind") or "relates_to"),
+            source_id=source_id,
+            target_id=target_id,
+            label=str(item.get("label") or item.get("kind") or "关联"),
+            evidence_ids=_strings(item.get("evidence_ids")),
+        )
+
+    def add_flow(raw_flow: Any, *, desired: bool) -> None:
+        flow = _mapping(raw_flow)
+        flow_id = str(flow.get("id") or "").strip()
+        if not flow_id:
+            return
+        evidence_ids = _strings(flow.get("evidence_ids"))
+        entities[flow_id] = _entity(
+            flow_id,
+            kind="business_flow",
+            name=str(flow.get("name") or flow_id),
+            summary=f"包含 {len(_list(flow.get('steps')))} 个显式步骤。",
+            status=(
+                f"EXPECTED_{flow.get('expectation') or 'REQUIRED'}"
+                if desired
+                else "OBSERVED"
+            ),
+            evidence_ids=evidence_ids,
+        )
+        if not desired:
+            groups["flows"].append(flow_id)
+        for index, raw_step in enumerate(_list(flow.get("steps"))):
+            step = _mapping(raw_step)
+            target_id = str(step.get("entity_id") or "")
+            if target_id not in entities:
+                continue
+            relation_id = f"flow-step:{flow_id}:{index + 1}:{target_id}"
+            relations[relation_id] = _relation(
+                relation_id,
+                kind="flow_step",
+                source_id=flow_id,
+                target_id=target_id,
+                label=str(step.get("action") or f"步骤 {index + 1}"),
+                evidence_ids=evidence_ids,
+            )
+
+    def add_state_machine(raw_machine: Any, *, desired: bool) -> None:
+        machine = _mapping(raw_machine)
+        machine_id = str(machine.get("id") or "").strip()
+        owner_id = str(machine.get("entity_id") or "")
+        if not machine_id:
+            return
+        evidence_ids = _strings(machine.get("evidence_ids"))
+        entities[machine_id] = _entity(
+            machine_id,
+            kind="state_machine",
+            name=machine_id,
+            summary=(
+                f"初始状态 {machine.get('initial_state') or 'UNKNOWN'}，"
+                f"{len(_list(machine.get('transitions')))} 个显式转换。"
+            ),
+            status=(
+                f"EXPECTED_{machine.get('expectation') or 'REQUIRED'}"
+                if desired
+                else "OBSERVED"
+            ),
+            evidence_ids=evidence_ids,
+            attributes={
+                "state_count": len(_list(machine.get("states"))),
+                "transition_count": len(_list(machine.get("transitions"))),
+            },
+        )
+        if not desired:
+            groups["flows"].append(machine_id)
+        if owner_id in entities:
+            relation_id = f"governs:{machine_id}:{owner_id}"
+            relations[relation_id] = _relation(
+                relation_id,
+                kind="governs_state",
+                source_id=machine_id,
+                target_id=owner_id,
+                label="约束状态",
+                evidence_ids=evidence_ids,
+            )
+
+    for raw in _list(project_model.get("flows")):
+        add_flow(raw, desired=False)
+    for raw in _list(project_model.get("state_machines")):
+        add_state_machine(raw, desired=False)
+
+    architecture_model = _mapping(project_model.get("architecture"))
+    desired_state = _mapping(architecture_model.get("desired"))
+    for raw in _list(desired_state.get("entities")):
+        item = _mapping(raw)
+        entity_id = str(item.get("id") or "").strip()
+        if not entity_id:
+            continue
+        if entity_id not in entities:
+            entities[entity_id] = _entity(
+                entity_id,
+                kind=str(item.get("kind") or "entity"),
+                name=str(item.get("name") or entity_id),
+                summary=str(item.get("responsibility") or "目标职责尚未声明。"),
+                status=f"EXPECTED_{item.get('expectation') or 'REQUIRED'}",
+                evidence_ids=_strings(item.get("evidence_ids")),
+                attributes=(
+                    {"locator": item.get("locator")}
+                    if item.get("locator")
+                    else {}
+                ),
+            )
+    for raw in _list(desired_state.get("relations")):
+        item = _mapping(raw)
+        relation_id = str(item.get("id") or "").strip()
+        source_id = str(item.get("source_id") or "")
+        target_id = str(item.get("target_id") or "")
+        if (
+            relation_id
+            and relation_id not in relations
+            and source_id in entities
+            and target_id in entities
+        ):
+            relations[relation_id] = _relation(
+                relation_id,
+                kind=str(item.get("kind") or "relates_to"),
+                source_id=source_id,
+                target_id=target_id,
+                label=str(item.get("label") or "目标关系"),
+                evidence_ids=_strings(item.get("evidence_ids")),
+            )
+    for raw in _list(desired_state.get("flows")):
+        add_flow(raw, desired=True)
+    for raw in _list(desired_state.get("state_machines")):
+        add_state_machine(raw, desired=True)
+
     for identifier, title, payload in (
         ("code:codegraph", "代码索引", _mapping(snapshot.get("codegraph"))),
         ("code:complexity", "复杂度", _mapping(snapshot.get("complexity"))),
@@ -330,6 +517,42 @@ def _build_entities(
             },
         )
         groups["tools"].append(entity_id)
+
+    change_safety = _mapping(inspection.get("change_safety"))
+    if change_safety:
+        change_id = "change:safety"
+        change_evidence_ids = [
+            evidence_id
+            for evidence_id in _strings(change_safety.get("evidence_ids"))
+            if evidence_id in evidence
+        ]
+        entities[change_id] = _entity(
+            change_id,
+            kind="change_safety",
+            name="变更安全",
+            summary=(
+                f"阶段 {change_safety.get('phase') or 'UNKNOWN'}，"
+                f"结论 {change_safety.get('verdict') or 'NO_GO'}。"
+            ),
+            status=str(change_safety.get("verdict") or "NO_GO"),
+            evidence_ids=change_evidence_ids,
+        )
+        groups["code"].append(change_id)
+        for index, raw in enumerate(_list(change_safety.get("associations"))):
+            association = _mapping(raw)
+            locator = str(association.get("path") or "")
+            for target_id in _strings(association.get("entity_ids")):
+                if target_id not in entities:
+                    continue
+                relation_id = f"change-affects:{index + 1}:{target_id}"
+                relations[relation_id] = _relation(
+                    relation_id,
+                    kind="change_affects",
+                    source_id=change_id,
+                    target_id=target_id,
+                    label=f"影响 {locator}" if locator else "影响",
+                    evidence_ids=change_evidence_ids,
+                )
 
     return entities, relations, groups
 
@@ -490,6 +713,85 @@ def _build_findings(
             layer_ids=["overview", "evidence"],
             viewpoint_ids=["product", "system", "risk"],
         )
+    change_safety = _mapping(inspection.get("change_safety"))
+    change_verdict = str(change_safety.get("verdict") or "")
+    if change_verdict in {"CAUTION", "NO_GO"}:
+        evidence_ids = [
+            evidence_id
+            for evidence_id in _strings(change_safety.get("evidence_ids"))
+            if evidence_id in evidence
+        ]
+        if not evidence_ids:
+            evidence_ids = [
+                _add_inspection_evidence(
+                    evidence,
+                    "inspection:change-safety",
+                    f"change_safety={change_verdict}",
+                )
+            ]
+        findings["change-safety"] = _finding(
+            "change-safety",
+            title=(
+                "变更安全门禁未通过"
+                if change_verdict == "NO_GO"
+                else "变更仍需谨慎推进"
+            ),
+            severity="high" if change_verdict == "NO_GO" else "medium",
+            confidence="high",
+            action_bucket="now",
+            why=", ".join(_strings(change_safety.get("reasons")))
+            or "变更证据尚不足。",
+            impact=["当前变更不能被当作已完成或可安全发布。"],
+            safest_step="补齐缺失的结构影响、测试执行或仓库 gate 证据。",
+            avoid=["不要把 affectedTests 计划清单冒充测试执行结果。"],
+            evidence_ids=evidence_ids,
+            layer_ids=["overview", "architecture", "code", "evidence"],
+            viewpoint_ids=["system", "risk"],
+        )
+    architecture = _mapping(project_model.get("architecture"))
+    drift = _mapping(architecture.get("drift"))
+    for raw in _list(drift.get("findings")):
+        item = _mapping(raw)
+        status = str(item.get("status") or "UNVERIFIABLE")
+        if status == "CONFORMANT":
+            continue
+        source_id = str(item.get("id") or "").strip()
+        if not source_id:
+            continue
+        finding_id = f"architecture-drift:{source_id}"
+        evidence_ids = sorted(
+            set(_strings(item.get("declaration_evidence_ids")))
+            | set(_strings(item.get("observation_evidence_ids")))
+        )
+        if not evidence_ids:
+            evidence_id = _add_inspection_evidence(
+                evidence,
+                f"inspection:{finding_id}",
+                str(item.get("reason") or "architecture drift is unverifiable"),
+            )
+            evidence_ids = [evidence_id]
+        findings[finding_id] = _finding(
+            finding_id,
+            title=(
+                "架构约束与现状冲突"
+                if status == "VIOLATION"
+                else "架构漂移暂不可验证"
+            ),
+            severity="high" if status == "VIOLATION" else "medium",
+            confidence="high" if status == "VIOLATION" else "medium",
+            action_bucket="now" if status == "VIOLATION" else "watch",
+            why=str(item.get("reason") or status),
+            impact=[
+                "显式架构约束未被当前拓扑满足。"
+                if status == "VIOLATION"
+                else "As-Is 覆盖不足，不能声称符合或违反目标架构。"
+            ],
+            safest_step="核对声明与观测证据，再修复约束或补齐探测覆盖。",
+            avoid=["不要把不可验证状态洗成符合，也不要让视觉层反写架构声明。"],
+            evidence_ids=evidence_ids,
+            layer_ids=["architecture", "evidence"],
+            viewpoint_ids=["system", "risk"],
+        )
     return findings
 
 
@@ -599,6 +901,7 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
     project_model = _mapping(snapshot.get("project_model"))
     evidence: dict[str, dict[str, Any]] = {}
     _copy_project_evidence(project_model, evidence)
+    _copy_change_evidence(inspection, evidence)
     status = str(inspection.get("status") or "UNKNOWN")
     project_health = str(inspection.get("project_health") or "UNKNOWN")
     context_readiness = str(inspection.get("context_readiness") or "UNKNOWN")
@@ -633,38 +936,106 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
     project = _mapping(project_model.get("project"))
     project_id = str(project.get("id") or "project:unknown")
     identity_evidence = _strings(project.get("evidence_ids"))
-    all_architecture_entity_ids = sorted(
-        set(groups["applications"] + groups["modules"])
-    )
-    all_architecture_relation_ids = sorted(
-        relation_id
-        for relation_id, relation in relations.items()
-        if relation["source_id"] in set(all_architecture_entity_ids)
-        or relation["target_id"] in set(all_architecture_entity_ids)
-    )
+    architecture_model = _mapping(project_model.get("architecture"))
+    current_architecture = _mapping(architecture_model.get("current"))
+    if architecture_model:
+        all_architecture_entity_ids = sorted(
+            {
+                entity_id
+                for entity_id in (
+                    _strings(current_architecture.get("entity_ids"))
+                    + _strings(current_architecture.get("flow_ids"))
+                    + _strings(current_architecture.get("state_machine_ids"))
+                )
+                if entity_id in entities
+                and entities[entity_id].get("kind") not in {"project", "runtime"}
+            }
+        )
+    else:
+        all_architecture_entity_ids = sorted(
+            set(groups["applications"] + groups["modules"])
+        )
+    if architecture_model:
+        current_flow_entities = set(
+            _strings(current_architecture.get("flow_ids"))
+            + _strings(current_architecture.get("state_machine_ids"))
+        )
+        current_relation_ids = set(
+            _strings(current_architecture.get("relation_ids"))
+        )
+        all_architecture_relation_ids = sorted(
+            relation_id
+            for relation_id, relation in relations.items()
+            if relation_id in current_relation_ids
+            or relation["source_id"] in current_flow_entities
+        )
+    else:
+        all_architecture_relation_ids = sorted(
+            relation_id
+            for relation_id, relation in relations.items()
+            if relation["source_id"] in set(all_architecture_entity_ids)
+            or relation["target_id"] in set(all_architecture_entity_ids)
+        )
     architecture_entity_limit = int(policy["limits"]["entities_per_layer"])
     architecture_relation_limit = int(policy["limits"]["relations_per_layer"])
     architecture_entity_ids = all_architecture_entity_ids[:architecture_entity_limit]
     architecture_relation_ids = all_architecture_relation_ids[:architecture_relation_limit]
-    desired = _mapping(snapshot.get("desired_architecture"))
-    to_be_entity_ids = [
-        str(item)
-        for item in _list(desired.get("entity_ids"))
-        if str(item) in entities
-    ]
-    to_be_relation_ids = [
-        str(item)
-        for item in _list(desired.get("relation_ids"))
-        if str(item) in relations
-    ]
-    to_be_evidence_ids = [
-        str(item)
-        for item in _list(desired.get("evidence_ids"))
-        if str(item) in evidence
-    ]
-    to_be_is_declared = bool(
-        to_be_evidence_ids and (to_be_entity_ids or to_be_relation_ids)
-    )
+    if architecture_model:
+        desired = _mapping(architecture_model.get("desired"))
+        to_be_entity_ids = sorted(
+            {
+                str(item.get("id"))
+                for collection in ("entities", "flows", "state_machines")
+                for item in (
+                    _mapping(raw) for raw in _list(desired.get(collection))
+                )
+                if str(item.get("id") or "") in entities
+            }
+        )
+        to_be_relation_ids = sorted(
+            {
+                str(item.get("id"))
+                for item in (
+                    _mapping(raw)
+                    for raw in _list(desired.get("relations"))
+                )
+                if str(item.get("id") or "") in relations
+            }
+        )
+        to_be_evidence_ids = [
+            evidence_id
+            for evidence_id in _strings(desired.get("evidence_ids"))
+            if evidence_id in evidence
+        ]
+        to_be_is_declared = bool(
+            desired.get("state") == "DECLARED"
+            and to_be_evidence_ids
+            and (to_be_entity_ids or to_be_relation_ids)
+        )
+        architecture_drift = _list(
+            _mapping(architecture_model.get("drift")).get("findings")
+        )
+    else:
+        desired = _mapping(snapshot.get("desired_architecture"))
+        to_be_entity_ids = [
+            str(item)
+            for item in _list(desired.get("entity_ids"))
+            if str(item) in entities
+        ]
+        to_be_relation_ids = [
+            str(item)
+            for item in _list(desired.get("relation_ids"))
+            if str(item) in relations
+        ]
+        to_be_evidence_ids = [
+            str(item)
+            for item in _list(desired.get("evidence_ids"))
+            if str(item) in evidence
+        ]
+        to_be_is_declared = bool(
+            to_be_evidence_ids and (to_be_entity_ids or to_be_relation_ids)
+        )
+        architecture_drift = []
     labels = _mapping(policy.get("status_labels"))
     layers = _build_layers(
         policy=policy,
@@ -755,7 +1126,7 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
                 "evidence_ids": to_be_evidence_ids if to_be_is_declared else [],
                 "omitted": {"entities": 0, "relations": 0},
             },
-            "drift": [],
+            "drift": architecture_drift,
         },
     }
 

@@ -1,0 +1,72 @@
+kind: assertion_pack
+name: moth-release
+assertions:
+  - id: full-test-suite
+    claim: The complete Moth test suite passes and the runner selects tests.
+    type: shell
+    command: [.venv/bin/python, -m, pytest, -q]
+    expect:
+      op: regex
+      pattern: "[0-9]+ passed in"
+  - id: diff-whitespace
+    claim: The pending patch contains no whitespace errors.
+    type: shell
+    command: [git, diff, --check]
+    expect:
+      op: regex
+      pattern: "^$"
+  - id: public-change-schema-mirror
+    claim: The packaged and public change-safety schemas are identical.
+    type: shell
+    command:
+      - cmp
+      - -s
+      - src/moth/schemas/moth.change-safety.schema.json
+      - schemas/moth.change-safety.schema.json
+    expect:
+      op: regex
+      pattern: "^$"
+  - id: public-change-profile-schema-mirror
+    claim: The packaged and public change-safety profile schemas are identical.
+    type: shell
+    command:
+      - cmp
+      - -s
+      - src/moth/schemas/moth.change-safety-profile.schema.json
+      - schemas/moth.change-safety-profile.schema.json
+    expect:
+      op: regex
+      pattern: "^$"
+  - id: public-guidance-application-schema-mirror
+    claim: The packaged and public Guidance application schemas are identical.
+    type: shell
+    command:
+      - cmp
+      - -s
+      - src/moth/schemas/moth.guidance-application.schema.json
+      - schemas/moth.guidance-application.schema.json
+    expect:
+      op: regex
+      pattern: "^$"
+  - id: public-architecture-schema-mirror
+    claim: The packaged and public architecture-intent schemas are identical.
+    type: shell
+    command:
+      - cmp
+      - -s
+      - src/moth/schemas/moth.architecture-intent.schema.json
+      - schemas/moth.architecture-intent.schema.json
+    expect:
+      op: regex
+      pattern: "^$"
+  - id: public-project-model-schema-mirror
+    claim: The packaged and public project-model schemas are identical.
+    type: shell
+    command:
+      - cmp
+      - -s
+      - src/moth/schemas/moth.project-model.schema.json
+      - schemas/moth.project-model.schema.json
+    expect:
+      op: regex
+      pattern: "^$"

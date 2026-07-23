@@ -10,12 +10,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
     model = build_project_model(REPO_ROOT)
 
-    assert model["schema_version"] == "moth.project-model.v1"
+    assert model["schema_version"] == "moth.project-model.v2"
     assert model["verdict"] == "PASS"
     assert model["project"] == {
         "id": "python:moth",
         "name": "moth",
-        "version": "0.3.0",
+        "version": "1.0.0",
         "description": "Cross-repo audit atlas for architecture, governance, and startup readiness",
         "evidence_ids": ["manifest:pyproject.toml"],
     }
@@ -40,6 +40,27 @@ def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
         }
     ]
     assert model["modules"] == []
+    entity_ids = {item["id"] for item in model["entities"]}
+    assert {
+        "python",
+        "python-console:moth",
+        "python:moth",
+        "service:inspection",
+        "service:architecture-model",
+        "service:change-safety",
+    } <= entity_ids
+    assert "uses-runtime:python-console:moth:python" in {
+        item["id"] for item in model["relations"]
+    }
+    assert [item["id"] for item in model["flows"]] == [
+        "flow:change-safety",
+        "flow:inspect",
+    ]
+    assert [item["id"] for item in model["state_machines"]] == [
+        "state-machine:inspection"
+    ]
+    assert model["architecture"]["declaration_state"] == "DECLARED"
+    assert model["architecture"]["drift"]["state"] == "CONFORMANT"
     assert model["coverage"]["detectors"] == [
         {"id": "python-project", "state": "DETECTED"},
         {"id": "apple-project", "state": "NOT_DETECTED"},
@@ -52,12 +73,13 @@ def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
     assert model["coverage"]["warnings"] == []
 
     evidence = model["evidence"]
-    assert len(evidence) == 1
-    assert evidence[0]["id"] == "manifest:pyproject.toml"
-    assert evidence[0]["kind"] == "manifest"
-    assert evidence[0]["locator"] == "pyproject.toml"
-    assert evidence[0]["sha256"].startswith("sha256:")
-    assert len(evidence[0]["sha256"]) == len("sha256:") + 64
+    manifest = next(
+        item for item in evidence if item["id"] == "manifest:pyproject.toml"
+    )
+    assert manifest["kind"] == "manifest"
+    assert manifest["locator"] == "pyproject.toml"
+    assert manifest["sha256"].startswith("sha256:")
+    assert len(manifest["sha256"]) == len("sha256:") + 64
     assert str(REPO_ROOT) not in repr(model)
 
 
@@ -94,6 +116,10 @@ def test_unknown_repository_returns_warned_empty_model(tmp_path) -> None:
     assert model["applications"] == []
     assert model["runtimes"] == []
     assert model["modules"] == []
+    assert model["entities"] == []
+    assert model["relations"] == []
+    assert model["flows"] == []
+    assert model["state_machines"] == []
     assert model["evidence"] == []
     assert all(
         detector["state"] == "NOT_DETECTED"
@@ -112,7 +138,7 @@ def test_project_model_schema_declares_stage_one_contract() -> None:
         )
     )
 
-    assert schema["properties"]["schema_version"]["const"] == "moth.project-model.v1"
+    assert schema["properties"]["schema_version"]["const"] == "moth.project-model.v2"
     assert set(schema["required"]) == {
         "schema_version",
         "verdict",
@@ -120,9 +146,14 @@ def test_project_model_schema_declares_stage_one_contract() -> None:
         "applications",
         "runtimes",
         "modules",
+        "entities",
+        "relations",
+        "flows",
+        "state_machines",
+        "architecture",
         "evidence",
         "coverage",
     }
-    assert schema["properties"]["evidence"]["items"]["properties"]["locator"][
-        "pattern"
-    ] == r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$"
+    assert schema["$defs"]["relativePath"]["pattern"] == (
+        r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$"
+    )

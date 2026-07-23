@@ -51,33 +51,39 @@ stages:
       - 固化全量上游兼容矩阵
   - id: stage_1
     title: 统一项目模型
-    state: PARTIAL
+    state: COMPLETE
     evidence:
       - src/moth/project_model.py
+      - src/moth/architecture_model.py
+      - src/moth/architecture_intent.py
+      - src/moth/architecture_drift.py
       - src/moth/detectors/python_project.py
       - src/moth/detectors/registry.py
       - src/moth/detectors/platform_rules.yaml
       - src/moth/detectors/platform_rules.schema.json
       - schemas/moth.project-model.schema.json
+      - schemas/moth.architecture-intent.schema.json
       - tests/test_project_model.py
+      - tests/test_architecture_model.py
       - tests/test_python_project_detector.py
       - tests/test_platform_detectors.py
-    residual:
-      - 在不把视觉投影变成第二真相源的前提下补充服务 关系 真实流程和状态转换合同
-      - 将结构化风险与变化证据通过独立关联模型引用项目实体
+    residual: []
   - id: stage_2
     title: Mio 与架构师协作上下文闭环
-    state: IN_PROGRESS
+    state: COMPLETE
     evidence:
       - src/moth/guidance_registry.py
       - src/moth/decision_context.py
+      - src/moth/guidance_application.py
+      - src/moth/guidance_application_policy.yaml
       - src/moth/orchestration.py
       - src/moth/inspection.py
       - schemas/moth.decision-context.schema.json
-    residual:
-      - 交付 host-native 可验证 executor bridge 当前仅有诚实的 SELF_ATTESTED 状态
-      - 实现冲突回报和 APPLIED_WITH_EVIDENCE 状态
-      - 用 host-native 可信遥测把 SELF_ATTESTED 提升到 READY
+      - schemas/moth.guidance-application.schema.json
+      - tests/test_guidance_application.py
+      - tests/test_decision_context.py
+      - tests/test_cli.py
+    residual: []
   - id: stage_3
     title: 最小可视化闭环
     state: COMPLETE
@@ -93,15 +99,18 @@ stages:
     residual: []
   - id: stage_4
     title: 逐层架构浏览
-    state: PARTIAL
+    state: COMPLETE
     evidence:
+      - .moth/architecture.yaml
+      - src/moth/architecture_intent.py
+      - src/moth/architecture_drift.py
+      - src/moth/architecture_model.py
       - src/moth/visual_model.py
       - src/moth/visual_policy.yaml
       - src/moth/html_report.py
-    residual:
-      - 从仓库权威文档和配置生成可验证的 To-Be 实体与关系
-      - 增加真实业务流程和状态转换探测 不能把入口关系冒充业务流
-      - 计算 As-Is 与 To-Be 漂移并关联证据
+      - tests/test_architecture_model.py
+      - tests/test_visual_model.py
+    residual: []
   - id: stage_5
     title: 多平台适配
     state: COMPLETE
@@ -118,7 +127,7 @@ stages:
     residual: []
   - id: stage_6
     title: 风险关联与变化分析
-    state: PARTIAL
+    state: COMPLETE
     evidence:
       - src/moth/adapters/codegraph.py
       - src/moth/adapters/complexity.py
@@ -126,20 +135,27 @@ stages:
       - src/moth/tool_evidence.py
       - src/moth/tool_contracts/omen.yaml
       - src/moth/safe_process.py
-    residual:
-      - 统一影响范围 风险 变化证据
-      - 建立可视化风险路径
+      - src/moth/change_safety.py
+      - schemas/moth.change-safety.schema.json
+      - tests/test_change_safety.py
+      - tests/test_visual_model.py
+    residual: []
   - id: stage_7
     title: 变更安全工作流
-    state: PARTIAL
+    state: COMPLETE
     evidence:
+      - .moth/change-safety.yaml
+      - .moth/gates/release.yaml
       - src/moth/checks/coupling.py
       - src/moth/checks/import_cycles.py
       - src/moth/gates.py
-    residual:
-      - 形成变更前 中 后闭环
-      - 将 affected tests 和风险证据接入单入口
-      - 验证失败退出码传播与 red-to-green
+      - src/moth/change_safety.py
+      - src/moth/inspection.py
+      - src/moth/cli.py
+      - tests/test_change_safety.py
+      - tests/test_cli.py
+      - tests/test_report.py
+    residual: []
   - id: stage_8
     title: 工具和上游管理
     state: PARTIAL

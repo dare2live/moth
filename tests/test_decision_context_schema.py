@@ -46,6 +46,31 @@ def test_decision_context_schema_freezes_orthogonal_states_and_receipts() -> Non
         "attestation_kind",
     }
     assert receipt["additionalProperties"] is False
+    application = schema["properties"]["guidance_applications"]["items"]
+    assert set(application["required"]) == {
+        "source_id",
+        "report_state",
+        "application_state",
+        "contract_id",
+        "loaded_at",
+        "decision_summary",
+        "evidence_refs",
+        "decisions_influenced",
+        "conflicts",
+    }
+    assert application["properties"]["report_state"]["enum"] == [
+        "NONE",
+        "VALID",
+        "INVALID",
+        "STALE",
+    ]
+    decision = application["properties"]["decisions_influenced"]["items"]
+    assert set(decision["required"]) == {
+        "decision_id",
+        "summary",
+        "evidence_refs",
+    }
+    assert application["additionalProperties"] is False
 
 
 def test_runtime_decision_context_validates_against_schema() -> None:

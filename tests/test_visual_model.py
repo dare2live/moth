@@ -240,3 +240,167 @@ def test_invalid_desired_architecture_cannot_claim_declared_state() -> None:
 
     assert model["architecture"]["to_be"]["state"] == "NOT_DECLARED"
     assert model["architecture"]["to_be"]["entity_ids"] == []
+
+
+def test_v2_topology_projects_real_flows_new_to_be_entities_and_drift() -> None:
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "python:sample",
+                    "kind": "project",
+                    "name": "sample",
+                    "responsibility": "Sample project.",
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                },
+                {
+                    "id": "service:inspection",
+                    "kind": "service",
+                    "name": "Inspection",
+                    "responsibility": "Build inspections.",
+                    "locator": "src/moth/inspection.py",
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                },
+            ],
+            "relations": [],
+            "flows": [
+                {
+                    "id": "flow:inspect",
+                    "name": "Inspect",
+                    "steps": [
+                        {
+                            "id": "step:start",
+                            "entity_id": "service:inspection",
+                            "action": "start",
+                        },
+                        {
+                            "id": "step:finish",
+                            "entity_id": "service:inspection",
+                            "action": "finish",
+                        },
+                    ],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "state_machines": [],
+            "architecture": {
+                "declaration_state": "DECLARED",
+                "current": {
+                    "state": "OBSERVED",
+                    "complete": True,
+                    "entity_ids": ["python:sample", "service:inspection"],
+                    "relation_ids": [],
+                    "flow_ids": ["flow:inspect"],
+                    "state_machine_ids": [],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                },
+                "desired": {
+                    "state": "DECLARED",
+                    "complete": False,
+                    "entities": [
+                        {
+                            "id": "service:risk",
+                            "kind": "service",
+                            "name": "Risk",
+                            "responsibility": "Unify risk evidence.",
+                            "locator": "src/moth/change_safety.py",
+                            "expectation": "REQUIRED",
+                            "evidence_ids": ["manifest:pyproject.toml"],
+                        }
+                    ],
+                    "relations": [
+                        {
+                            "id": "relation:inspection-risk",
+                            "kind": "calls",
+                            "source_id": "service:inspection",
+                            "target_id": "service:risk",
+                            "label": "assesses",
+                            "expectation": "REQUIRED",
+                            "evidence_ids": ["manifest:pyproject.toml"],
+                        }
+                    ],
+                    "flows": [],
+                    "state_machines": [],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                },
+                "drift": {
+                    "state": "DRIFT_DETECTED",
+                    "findings": [
+                        {
+                            "id": "entity:service:risk",
+                            "subject_id": "service:risk",
+                            "subject_kind": "entity",
+                            "expectation": "REQUIRED",
+                            "status": "VIOLATION",
+                            "reason": "required subject was not observed",
+                            "declaration_evidence_ids": [
+                                "manifest:pyproject.toml"
+                            ],
+                            "observation_evidence_ids": [],
+                        }
+                    ],
+                    "violation_ids": ["entity:service:risk"],
+                    "unverifiable_ids": [],
+                    "conformant_ids": [],
+                },
+                "issues": [],
+                "warnings": [],
+            },
+        }
+    )
+
+    model = build_visual_model(inspection)
+    flow_layer = next(layer for layer in model["layers"] if layer["id"] == "flows")
+
+    assert "flow:inspect" in model["entities"]
+    assert flow_layer["availability"] == "AVAILABLE"
+    assert flow_layer["entity_ids"] == ["flow:inspect"]
+    assert model["entities"]["service:risk"]["status"] == "EXPECTED_REQUIRED"
+    assert model["architecture"]["to_be"]["state"] == "DECLARED"
+    assert model["architecture"]["to_be"]["entity_ids"] == ["service:risk"]
+    assert model["architecture"]["to_be"]["relation_ids"] == [
+        "relation:inspection-risk"
+    ]
+    assert model["architecture"]["drift"][0]["status"] == "VIOLATION"
+    assert "architecture-drift:entity:service:risk" in model["findings"]
+
+
+def test_change_safety_projects_exact_risk_path_without_claiming_cause() -> None:
+    inspection = inspection_fixture()
+    inspection["change_safety"] = {
+        "phase": "pre_change",
+        "verdict": "CAUTION",
+        "reasons": ["heuristic_risk_observed"],
+        "evidence_ids": ["change:risk"],
+        "evidence": {
+            "change:risk": {
+                "id": "change:risk",
+                "observation_kind": "HEURISTIC",
+                "state": "PRESENT",
+                "summary": "hotspot reported high heuristic evidence",
+                "locator": "sample.cli:main",
+                "entity_ids": ["python-console:sample"],
+                "causal_claim": False,
+            }
+        },
+        "associations": [
+            {
+                "path": "sample.cli:main",
+                "entity_ids": ["python-console:sample"],
+                "risk_levels": ["high"],
+                "evidence_kinds": ["changed_file", "hotspot"],
+            }
+        ],
+    }
+
+    model = build_visual_model(inspection)
+
+    assert model["entities"]["change:safety"]["status"] == "CAUTION"
+    relation = model["relations"]["change-affects:1:python-console:sample"]
+    assert relation["source_id"] == "change:safety"
+    assert relation["target_id"] == "python-console:sample"
+    assert model["findings"]["change-safety"]["severity"] == "medium"
+    assert model["evidence"]["change:risk"]["kind"] == "HEURISTIC"

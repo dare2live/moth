@@ -1,0 +1,37 @@
+schema_version: moth.architecture-policy.v1
+declaration_path: .moth/architecture.yaml
+limits:
+  declaration_bytes: 524288
+  evidence_files: 32
+  evidence_bytes_each: 1048576
+  entities_per_state: 500
+  relations_per_state: 1000
+  flows_per_state: 200
+  steps_per_flow: 100
+  state_machines_per_state: 200
+  states_per_machine: 100
+  transitions_per_machine: 300
+vocabulary:
+  entity_kinds:
+    - application
+    - runtime
+    - module
+    - service
+    - data_store
+    - external_system
+    - platform
+    - repository
+    - capability
+  relation_kinds:
+    - uses_runtime
+    - calls
+    - reads
+    - writes
+    - publishes
+    - subscribes
+    - depends_on
+    - contains
+    - synchronizes
+  expectations:
+    - REQUIRED
+    - FORBIDDEN

@@ -1,0 +1,25 @@
+kind: moth_guidance_application_policy
+schema_version: 1
+contract:
+  schema_version: moth.guidance_application.v1
+  activation_states: [SELF_ATTESTED, PLATFORM_VERIFIED]
+limits:
+  reports: 32
+  evidence_refs: 32
+  decisions: 32
+  conflicts: 16
+  summary_chars: 1024
+states:
+  report:
+    none: NONE
+    valid: VALID
+    invalid: INVALID
+    stale: STALE
+  application:
+    not_claimed: NOT_CLAIMED
+    applied: APPLIED_WITH_EVIDENCE
+conflict_resolutions:
+  - ACCEPT_GUIDANCE
+  - REJECT_GUIDANCE
+  - MERGED
+  - DEFERRED

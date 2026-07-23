@@ -1,0 +1,78 @@
+schema_version: moth.compatibility-matrix.v1
+observed_at: 2026-07-23
+policy:
+  compatibility_authority: runtime_capability_and_output_contract
+  version_ceiling: null
+  update_strategy: latest_stable
+  observed_versions_are: evidence_only
+  update_intents:
+    - 更新 moth 相关工具和 skill
+    - 升级 moth 相关工具和 skill
+
+components:
+  codegraph:
+    role: structural_index_and_impact_evidence
+    observed_version: 1.5.0
+    version_constraint: null
+    required_capabilities:
+      - status_json
+      - affected_json
+      - query_path
+      - explore_path
+      - sync
+    compatibility_probe:
+      - codegraph status . --json
+      - codegraph affected --path . --json src/moth/inspection.py
+    authority: normalized command exit, freshness, and JSON fields
+  complexity_optimizer:
+    role: heuristic_complexity_evidence
+    observed_version: vendored-schema-frozen-2026-07-02
+    version_constraint: null
+    required_capabilities:
+      - bounded_in_process_scan
+      - frozen_finding_schema
+      - upstream_parity_fixture
+    compatibility_probe:
+      - pytest -q tests/test_analyzers_complexity.py tests/test_complexity_adapter.py
+    authority: normalized finding schema and parity tests
+  omen:
+    role: heuristic_hotspot_and_change_evidence
+    observed_version: 4.25.0
+    version_constraint: null
+    required_capabilities:
+      - hotspot_json
+      - changes_json
+      - diff_json
+    compatibility_probe:
+      - omen --version
+      - moth inspect --repo . --profile .moth/profile.yaml --plan-only --format json
+    authority: src/moth/tool_contracts/omen.yaml runtime probes
+  mio:
+    role: collaboration_guidance
+    observed_version: source_digest_at_runtime
+    version_constraint: null
+    required_capabilities:
+      - skill_logical_ref_resolution
+      - ordered_guidance_activation
+      - digest_bound_receipt
+    authority: current Codex Skill catalog and activation receipt digest
+  architect-controller:
+    role: architecture_controller_guidance
+    observed_version: source_digest_at_runtime
+    version_constraint: null
+    required_capabilities:
+      - skill_logical_ref_resolution
+      - ordered_guidance_activation
+      - decision_context_contract
+    authority: current Codex Skill catalog and activation receipt digest
+  moth-plugin:
+    role: single_user_facing_entry
+    observed_version: 1.0.0+codex.20260723113302
+    version_constraint: null
+    required_capabilities:
+      - inspect_json
+      - inspect_html
+      - guidance_plan
+      - guidance_application
+      - change_safety
+    authority: plugin validators and fresh-task forward test

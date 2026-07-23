@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moth.local/schemas/moth.change-safety-profile.schema.json",
+  "title": "Repository-owned Moth change safety profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "phases"],
+  "properties": {
+    "schema_version": {"const": "moth.change-safety-profile.v1"},
+    "phases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pre_change", "during_change", "post_change"],
+      "properties": {
+        "pre_change": {"$ref": "#/$defs/phase"},
+        "during_change": {"$ref": "#/$defs/phase"},
+        "post_change": {"$ref": "#/$defs/phase"}
+      }
+    }
+  },
+  "$defs": {
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mandatory_gates"],
+      "properties": {
+        "mandatory_gates": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          }
+        }
+      }
+    }
+  }
+}

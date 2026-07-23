@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from typing import Any
 
+from moth.guidance_application import evaluate_guidance_applications
 from moth.guidance_policy import TASK_ACTIVATIONS
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -63,7 +64,15 @@ def _receipt_state(receipt: dict[str, Any], source: dict[str, Any], run_id: str)
     return "SELF_ATTESTED"
 
 
-def build_decision_context(guidance: dict[str, Any], *, task_kind: str, run_id: str, receipts: list[dict[str, Any]]) -> dict[str, Any]:
+def build_decision_context(
+    guidance: dict[str, Any],
+    *,
+    task_kind: str,
+    run_id: str,
+    receipts: list[dict[str, Any]],
+    application_reports: list[dict[str, Any]] | None = None,
+    available_evidence_ids: set[str] | None = None,
+) -> dict[str, Any]:
     if task_kind not in TASK_ACTIVATIONS:
         raise ValueError(f"unknown task kind: {task_kind}")
     if not isinstance(run_id, str) or not _SAFE_ID.fullmatch(run_id):
@@ -83,15 +92,40 @@ def build_decision_context(guidance: dict[str, Any], *, task_kind: str, run_id: 
         receipt_by_source[source_id] = receipt
     active = [item for item in sources if item.get("activation") in TASK_ACTIVATIONS[task_kind]]
     ordered = _ordered(active, set(ids))
+    receipt_states: dict[str, str] = {}
+    activation_bindings: dict[str, dict[str, Any]] = {}
+    for source in ordered:
+        source_id = str(source["id"])
+        receipt = receipt_by_source.get(source_id)
+        state = "NONE" if receipt is None else _receipt_state(receipt, source, run_id)
+        receipt_states[source_id] = state
+        if receipt is not None and state in {"SELF_ATTESTED", "PLATFORM_VERIFIED"}:
+            activation_bindings[source_id] = {
+                "receipt_state": state,
+                "contract_id": receipt["contract_id"],
+                "loaded_at": receipt["loaded_at"],
+            }
+    guidance_applications = evaluate_guidance_applications(
+        ordered,
+        run_id=run_id,
+        reports=application_reports,
+        available_evidence_ids=available_evidence_ids,
+        activation_bindings=activation_bindings,
+    )
+    application_by_source = {
+        item["source_id"]: item for item in guidance_applications
+    }
     guidance_rows: list[dict[str, Any]] = []
     missing: list[str] = []
     self_attested_required: list[str] = []
     sanitized_receipts: list[dict[str, Any]] = []
+    application_reports_provided = bool(application_reports)
+    missing_application: list[str] = []
     for source in ordered:
         source_id = str(source["id"])
         applicability = "REQUIRED" if source.get("requirement") == "required_when_active" else "OPTIONAL"
         receipt = receipt_by_source.get(source_id)
-        state = "NONE" if receipt is None else _receipt_state(receipt, source, run_id)
+        state = receipt_states[source_id]
         if applicability == "REQUIRED" and state == "SELF_ATTESTED":
             self_attested_required.append(source_id)
         elif applicability == "REQUIRED" and state != "PLATFORM_VERIFIED":
@@ -101,9 +135,17 @@ def build_decision_context(guidance: dict[str, Any], *, task_kind: str, run_id: 
             "discovery_state": source.get("state", "UNAVAILABLE"),
             "applicability": applicability,
             "receipt_state": state,
-            "application_state": "NOT_CLAIMED",
+            "application_state": application_by_source[source_id][
+                "application_state"
+            ],
         }
         guidance_rows.append(row)
+        if (
+            application_reports_provided
+            and applicability == "REQUIRED"
+            and row["application_state"] != "APPLIED_WITH_EVIDENCE"
+        ):
+            missing_application.append(source_id)
         if receipt is not None:
             sanitized_receipts.append({
                 "source_id": source_id,
@@ -112,7 +154,7 @@ def build_decision_context(guidance: dict[str, Any], *, task_kind: str, run_id: 
             })
     readiness = (
         "BLOCKED"
-        if missing
+        if missing or missing_application
         else "SELF_ATTESTED"
         if self_attested_required
         else "READY"
@@ -125,7 +167,16 @@ def build_decision_context(guidance: dict[str, Any], *, task_kind: str, run_id: 
         "context_readiness": readiness,
         "missing_required_sources": missing,
         "self_attested_required_sources": self_attested_required,
+        "application_readiness": (
+            "NOT_REPORTED"
+            if not application_reports_provided
+            else "BLOCKED"
+            if missing_application
+            else "COMPLETE"
+        ),
+        "missing_application_sources": missing_application,
         "not_applicable_sources": sorted(set(ids) - {str(item["id"]) for item in active}),
         "activation_receipts": sanitized_receipts,
+        "guidance_applications": guidance_applications,
         "project_health_affected": False,
     }

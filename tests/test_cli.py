@@ -17,6 +17,7 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
         task_kind,
         run_id,
         receipts,
+        application_reports,
         codex_home,
     ):
         captured_call.update(
@@ -25,6 +26,7 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
                 "task_kind": task_kind,
                 "run_id": run_id,
                 "receipts": receipts,
+                "application_reports": application_reports,
                 "codex_home": codex_home,
             }
         )
@@ -72,8 +74,46 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
         "task_kind": "architecture_orchestration",
         "run_id": "run-001",
         "receipts": [],
+        "application_reports": [],
         "codex_home": tmp_path,
     }
+
+
+def test_inspect_passes_structured_application_reports(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    reports_path = tmp_path / "application-reports.json"
+    reports_path.write_text('[{"source_id": "mio"}]\n', encoding="utf-8")
+    captured = {}
+
+    def fake_inspection(_profile, **kwargs):
+        captured.update(kwargs)
+        return {
+            "schema_version": "moth.inspection.v1",
+            "status": "PASS",
+            "project_health": "PASS",
+            "context_readiness": "READY",
+            "snapshot": {"status": "PASS"},
+            "orchestration": {"decision_context": {}},
+        }
+
+    monkeypatch.setattr("moth.cli.build_inspection", fake_inspection)
+
+    code = main(
+        [
+            "inspect",
+            "--repo",
+            str(tmp_path),
+            "--application-reports",
+            str(reports_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    assert code == 0
+    assert captured["application_reports"] == [{"source_id": "mio"}]
+    assert json.loads(capsys.readouterr().out)["status"] == "PASS"
 
 
 def test_inspect_can_render_self_contained_html(capsys, monkeypatch, tmp_path) -> None:
@@ -165,6 +205,79 @@ def test_inspect_uses_ephemeral_profile_without_writing_target_repo(
         "repo_path": repo.resolve(),
     }
     assert not (repo / ".moth").exists()
+
+
+@pytest.mark.parametrize(
+    ("change_verdict", "expected_code"),
+    [("GO", 0), ("CAUTION", 2), ("NO_GO", 1)],
+)
+def test_inspect_change_safety_verdict_controls_exit_code(
+    change_verdict, expected_code, capsys, monkeypatch, tmp_path
+) -> None:
+    captured = {}
+
+    def fake_inspection(_profile, **kwargs):
+        captured.update(kwargs)
+        return {
+            "schema_version": "moth.inspection.v1",
+            "status": "PASS",
+            "project_health": "PASS",
+            "context_readiness": "READY",
+            "change_safety_verdict": change_verdict,
+            "change_safety": {
+                "phase": "pre_change",
+                "verdict": change_verdict,
+            },
+            "snapshot": {"status": "PASS"},
+            "orchestration": {"decision_context": {}},
+        }
+
+    monkeypatch.setattr("moth.cli.build_inspection", fake_inspection)
+
+    code = main(
+        [
+            "inspect",
+            "--repo",
+            str(tmp_path),
+            "--change-phase",
+            "pre",
+            "--file",
+            "src/example.py",
+            "--gate",
+            "release",
+            "--plan-only",
+            "--format",
+            "json",
+        ]
+    )
+
+    assert code == expected_code
+    assert json.loads(capsys.readouterr().out)["change_safety_verdict"] == (
+        change_verdict
+    )
+    assert captured["change_phase"] == "pre_change"
+    assert captured["changed_files"] == ["src/example.py"]
+    assert captured["gate_names"] == ["release"]
+    assert captured["execute_gates"] is False
+
+
+def test_inspect_change_options_require_change_phase(capsys, tmp_path) -> None:
+    code = main(
+        [
+            "inspect",
+            "--repo",
+            str(tmp_path),
+            "--file",
+            "src/example.py",
+            "--format",
+            "json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["status"] == "FAIL"
+    assert "require --change-phase" in payload["issues"][0]
 
 
 @pytest.mark.parametrize("output_format", ["json", "markdown", "html"])
@@ -304,6 +417,38 @@ def test_affected_emits_json(capsys, monkeypatch) -> None:
     assert code == 0
     assert payload["input_files"] == ["src/new.py"]
     assert payload["codegraph_affected"]["affectedTests"] == ["tests/test_example.py"]
+
+
+def test_affected_warn_exit_is_nonzero_to_prevent_false_green(
+    capsys, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "moth.cli.build_affected_report",
+        lambda *_args, **_kwargs: {
+            "status": "WARN",
+            "affected_test_coverage": "UNKNOWN_EMPTY",
+            "codegraph_affected": {"affectedTests": []},
+            "warnings": ["affected test coverage unknown"],
+            "issues": [],
+        },
+    )
+
+    code = main(
+        [
+            "affected",
+            "--repo",
+            "/Users/dp/Documents/M/stock/chunkymonkey",
+            "--profile",
+            "chunkymonkey",
+            "--file",
+            "src/new.py",
+            "--format",
+            "json",
+        ]
+    )
+
+    assert code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "WARN"
 
 
 def test_profiles_emits_json(capsys, monkeypatch) -> None:

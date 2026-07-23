@@ -105,6 +105,136 @@ def test_matching_executor_receipts_are_self_attested_not_machine_verified() -> 
     ]
 
 
+def test_application_evidence_cannot_replace_activation_receipt() -> None:
+    guidance = _guidance()
+    digest = "sha256:" + ("b" * 64)
+    guidance["sources"][1]["source_digest"] = digest
+    context = build_decision_context(
+        guidance,
+        task_kind="substantive_judgment",
+        run_id="run-application",
+        receipts=[],
+        application_reports=[
+            {
+                "schema_version": "moth.guidance_application.v1",
+                "report_id": "application-mio",
+                "contract_id": "contract-001",
+                "run_id": "run-application",
+                "source_id": "mio",
+                "source_digest": digest,
+                "loaded_at": "2026-07-23T08:00:00Z",
+                "decision_summary": "Use the repository truth source.",
+                "evidence_refs": ["ev:decision:001"],
+                "decisions_influenced": [
+                    {
+                        "decision_id": "decision:truth-source",
+                        "summary": "Use the repository truth source.",
+                        "evidence_refs": ["ev:decision:001"],
+                    }
+                ],
+                "conflicts": [],
+            }
+        ],
+        available_evidence_ids={"ev:decision:001"},
+    )
+
+    assert context["guidance"][0]["receipt_state"] == "NONE"
+    assert context["guidance"][0]["application_state"] == "NOT_CLAIMED"
+    assert context["context_readiness"] == "BLOCKED"
+    assert context["application_readiness"] == "BLOCKED"
+    assert context["missing_application_sources"] == ["mio"]
+    assert context["guidance_applications"][0]["report_state"] == "INVALID"
+
+
+def test_matching_activation_and_resolved_evidence_claim_application() -> None:
+    guidance = _guidance()
+    digest = "sha256:" + ("b" * 64)
+    guidance["sources"][1]["source_digest"] = digest
+    loaded_at = "2026-07-23T08:00:00Z"
+    context = build_decision_context(
+        guidance,
+        task_kind="substantive_judgment",
+        run_id="run-application",
+        receipts=[
+            {
+                "receipt_id": "receipt-mio",
+                "run_id": "run-application",
+                "source_id": "mio",
+                "source_digest": digest,
+                "executor_id": "codex",
+                "loaded_at": loaded_at,
+                "contract_id": "contract-001",
+                "evidence_refs": ["ev:executor:mio"],
+            }
+        ],
+        application_reports=[
+            {
+                "schema_version": "moth.guidance_application.v1",
+                "report_id": "application-mio",
+                "contract_id": "contract-001",
+                "run_id": "run-application",
+                "source_id": "mio",
+                "source_digest": digest,
+                "loaded_at": loaded_at,
+                "decision_summary": "Use the repository truth source.",
+                "evidence_refs": ["ev:decision:001"],
+                "decisions_influenced": [
+                    {
+                        "decision_id": "decision:truth-source",
+                        "summary": "Use the repository truth source.",
+                        "evidence_refs": ["ev:decision:001"],
+                    }
+                ],
+                "conflicts": [],
+            }
+        ],
+        available_evidence_ids={"ev:decision:001"},
+    )
+
+    assert context["guidance"][0]["receipt_state"] == "SELF_ATTESTED"
+    assert context["guidance"][0]["application_state"] == "APPLIED_WITH_EVIDENCE"
+    assert context["application_readiness"] == "COMPLETE"
+    assert context["missing_application_sources"] == []
+    assert context["guidance_applications"][0]["report_state"] == "VALID"
+
+
+def test_stale_application_evidence_does_not_claim_applied() -> None:
+    guidance = _guidance()
+    digest = "sha256:" + ("c" * 64)
+    guidance["sources"][1]["source_digest"] = digest
+    context = build_decision_context(
+        guidance,
+        task_kind="substantive_judgment",
+        run_id="run-current",
+        receipts=[],
+        application_reports=[
+            {
+                "schema_version": "moth.guidance_application.v1",
+                "report_id": "application-mio",
+                "contract_id": "contract-001",
+                "run_id": "run-old",
+                "source_id": "mio",
+                "source_digest": digest,
+                "loaded_at": "2026-07-23T08:00:00Z",
+                "decision_summary": "Use the repository truth source.",
+                "evidence_refs": ["ev:decision:001"],
+                "decisions_influenced": [
+                    {
+                        "decision_id": "decision:truth-source",
+                        "summary": "Use the repository truth source.",
+                        "evidence_refs": ["ev:decision:001"],
+                    }
+                ],
+                "conflicts": [],
+            }
+        ],
+        available_evidence_ids={"ev:decision:001"},
+    )
+
+    assert context["guidance"][0]["application_state"] == "NOT_CLAIMED"
+    assert context["guidance_applications"][0]["report_state"] == "STALE"
+
+
 def test_mechanical_task_marks_guidance_not_applicable_without_blocking() -> None:
     context = build_decision_context(
         _guidance(),

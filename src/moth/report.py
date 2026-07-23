@@ -235,6 +235,23 @@ def build_affected_report(
         issues.extend(codegraph.get("issues") or ["codegraph affected failed"])
     if complexity.get("verdict") == "FAIL":
         issues.extend(complexity.get("issues") or ["complexity analysis failed"])
+    affected_tests = codegraph.get("affectedTests")
+    if not isinstance(affected_tests, list):
+        affected_tests = []
+    coverage_complete = bool(
+        codegraph.get("coverage_complete") is True
+        or codegraph.get("coverageComplete") is True
+    )
+    if affected_tests:
+        affected_test_coverage = "PLANNED"
+    elif coverage_complete:
+        affected_test_coverage = "COMPLETE_EMPTY"
+    else:
+        affected_test_coverage = "UNKNOWN_EMPTY"
+        warnings.append(
+            "affected test coverage unknown: provider returned no tests "
+            "without completeness evidence"
+        )
 
     summary = complexity.get("summary") or {}
     finding_count = int(summary.get("finding_count") or 0)
@@ -262,6 +279,8 @@ def build_affected_report(
         "input_files": files,
         "depth": depth,
         "test_filter": test_filter,
+        "affected_test_coverage": affected_test_coverage,
+        "coverage_complete": coverage_complete,
         "codegraph_affected": _jsonable(codegraph),
         "complexity": _jsonable(complexity),
         "issues": issues,
@@ -607,6 +626,9 @@ def render_affected_markdown(report: dict[str, Any]) -> str:
     lines.append("## CodeGraph affected")
     lines.append(f"- Verdict: `{affected.get('verdict', 'UNKNOWN')}`")
     lines.append(f"- Dependents traversed: `{affected.get('totalDependentsTraversed', 0)}`")
+    lines.append(
+        f"- Test coverage: `{report.get('affected_test_coverage', 'UNKNOWN')}`"
+    )
     lines.extend(_render_list("Affected tests", affected.get("affectedTests") or []))
     if affected.get("issues"):
         lines.extend(_render_list("CodeGraph affected issues", affected["issues"]))

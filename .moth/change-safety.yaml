@@ -1,0 +1,8 @@
+schema_version: moth.change-safety-profile.v1
+phases:
+  pre_change:
+    mandatory_gates: []
+  during_change:
+    mandatory_gates: []
+  post_change:
+    mandatory_gates: [release]

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
+from moth.architecture_model import build_architecture_model
 from moth.detectors.common import load_platform_rules
 from moth.detectors.registry import run_detectors
 
@@ -142,6 +147,27 @@ def build_project_model(repo_path: str | Path) -> dict[str, Any]:
         modules.append(mixed)
         modules.sort(key=lambda item: item["id"])
     project = _merge_project(detected, issues)
+    architecture = build_architecture_model(
+        repo_path,
+        project=project,
+        applications=applications,
+        runtimes=runtimes,
+        modules=modules,
+    )
+    for item in architecture["evidence"]:
+        existing = next(
+            (known for known in evidence if known["id"] == item["id"]),
+            None,
+        )
+        if existing is None:
+            evidence.append(item)
+        elif existing != item:
+            issues.append(
+                "project model conflict: architecture evidence id has incompatible facts"
+            )
+    evidence.sort(key=lambda item: item["id"])
+    issues.extend(architecture["issues"])
+    warnings.extend(architecture["warnings"])
     issues = list(dict.fromkeys(issues))
     warnings = list(dict.fromkeys(warnings))
     if issues:
@@ -150,13 +176,18 @@ def build_project_model(repo_path: str | Path) -> dict[str, Any]:
         verdict = "WARN"
     else:
         verdict = "PASS"
-    return {
-        "schema_version": "moth.project-model.v1",
+    result = {
+        "schema_version": "moth.project-model.v2",
         "verdict": verdict,
         "project": project,
         "applications": applications,
         "runtimes": runtimes,
         "modules": modules,
+        "entities": architecture["entities"],
+        "relations": architecture["relations"],
+        "flows": architecture["flows"],
+        "state_machines": architecture["state_machines"],
+        "architecture": architecture["architecture"],
         "evidence": evidence,
         "coverage": {
             "detectors": [fragment["detector"] for fragment in detected],
@@ -164,3 +195,34 @@ def build_project_model(repo_path: str | Path) -> dict[str, Any]:
             "warnings": warnings,
         },
     }
+    schema_errors = validate_project_model_schema(result)
+    if schema_errors:
+        result["verdict"] = "FAIL"
+        result["coverage"]["issues"] = list(
+            dict.fromkeys(
+                [
+                    *result["coverage"]["issues"],
+                    *(f"project model schema: {error}" for error in schema_errors),
+                ]
+            )
+        )
+    return result
+
+
+def validate_project_model_schema(payload: dict[str, Any]) -> list[str]:
+    schema = json.loads(
+        files("moth.schemas")
+        .joinpath("moth.project-model.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(payload),
+        key=lambda error: tuple(str(part) for part in error.absolute_path),
+    )
+    return [
+        (
+            f"{'.'.join(str(part) for part in error.absolute_path) or '<root>'}: "
+            f"{error.message}"
+        )
+        for error in errors
+    ]

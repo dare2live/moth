@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moth.local/schemas/moth.change-safety.schema.json",
+  "title": "Moth change safety",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "phase",
+    "baseline_digest",
+    "verdict",
+    "reasons",
+    "missing_requirements",
+    "scope",
+    "test_evidence",
+    "gate_evidence",
+    "risk",
+    "associations",
+    "evidence",
+    "evidence_ids"
+  ],
+  "properties": {
+    "schema_version": {"const": "moth.change-safety.v1"},
+    "phase": {"enum": ["pre_change", "during_change", "post_change"]},
+    "baseline_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "verdict": {"enum": ["GO", "CAUTION", "NO_GO"]},
+    "reasons": {"$ref": "#/$defs/stringArray"},
+    "missing_requirements": {"$ref": "#/$defs/stringArray"},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "changed_files"],
+      "properties": {
+        "state": {"enum": ["PRESENT", "UNKNOWN"]},
+        "changed_files": {"$ref": "#/$defs/locatorArray"}
+      }
+    },
+    "test_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "affected_tests", "evidence_ids"],
+      "properties": {
+        "state": {"enum": ["PLANNED", "NOT_CHECKED"]},
+        "affected_tests": {"$ref": "#/$defs/locatorArray"},
+        "evidence_ids": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "gate_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "gates", "evidence_ids"],
+      "properties": {
+        "state": {"enum": ["NOT_RUN", "PASSED", "FAILED"]},
+        "gates": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "state", "pass", "fail", "error"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "maxLength": 128},
+              "state": {"enum": ["PASSED", "FAILED"]},
+              "pass": {"type": "integer", "minimum": 0},
+              "fail": {"type": "integer", "minimum": 0},
+              "error": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "evidence_ids": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["highest_level", "causal_root", "evidence_ids"],
+      "properties": {
+        "highest_level": {
+          "type": ["string", "null"],
+          "enum": [null, "none", "info", "low", "medium", "high", "critical"]
+        },
+        "causal_root": {"type": "null"},
+        "evidence_ids": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "associations": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "entity_ids", "risk_levels", "evidence_kinds"],
+        "properties": {
+          "path": {"$ref": "#/$defs/locator"},
+          "entity_ids": {"$ref": "#/$defs/stringArray"},
+          "risk_levels": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"enum": ["none", "info", "low", "medium", "high", "critical"]}
+          },
+          "evidence_kinds": {"$ref": "#/$defs/stringArray"}
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "maxProperties": 1700,
+      "additionalProperties": {"$ref": "#/$defs/observation"}
+    },
+    "evidence_ids": {"$ref": "#/$defs/stringArray"}
+  },
+  "$defs": {
+    "locator": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "not": {"pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"}
+    },
+    "locatorArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/locator"}
+    },
+    "stringArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "observation_kind",
+        "state",
+        "summary",
+        "locator",
+        "entity_ids",
+        "causal_claim"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^change:[0-9a-f]{20}$"},
+        "observation_kind": {
+          "enum": ["FACT", "RUNTIME_RESULT", "PROJECT_ASSERTION", "HEURISTIC"]
+        },
+        "state": {
+          "enum": [
+            "PRESENT",
+            "PASS",
+            "FAIL",
+            "UNKNOWN",
+            "NOT_CHECKED",
+            "UNAVAILABLE",
+            "ERROR"
+          ]
+        },
+        "summary": {"type": "string", "minLength": 1, "maxLength": 512},
+        "locator": {
+          "anyOf": [
+            {"$ref": "#/$defs/locator"},
+            {"type": "null"}
+          ]
+        },
+        "entity_ids": {"$ref": "#/$defs/stringArray"},
+        "causal_claim": {"type": "boolean"}
+      }
+    }
+  }
+}

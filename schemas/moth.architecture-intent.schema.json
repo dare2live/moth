@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/moth.architecture-intent.schema.json",
+  "title": "Moth Architecture Intent",
+  "type": "object",
+  "required": ["schema_version", "evidence", "current", "desired"],
+  "properties": {
+    "schema_version": {"const": "moth.architecture-declaration.v1"},
+    "evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidenceSource"}
+    },
+    "current": {"$ref": "#/$defs/currentState"},
+    "desired": {"$ref": "#/$defs/desiredState"}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "evidenceIds": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/identifier"},
+      "uniqueItems": true
+    },
+    "evidenceSource": {
+      "type": "object",
+      "required": ["id", "kind", "path"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 80},
+        "path": {"$ref": "#/$defs/relativePath"}
+      },
+      "additionalProperties": false
+    },
+    "entityBase": {
+      "type": "object",
+      "required": ["id", "kind", "name", "responsibility", "evidence_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 80},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "responsibility": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "locator": {"$ref": "#/$defs/relativePath"},
+        "evidence_ids": {"$ref": "#/$defs/evidenceIds"},
+        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+      },
+      "additionalProperties": false
+    },
+    "entityConstraint": {
+      "allOf": [
+        {"$ref": "#/$defs/entityBase"},
+        {
+          "type": "object",
+          "required": ["expectation"],
+          "properties": {
+            "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+          }
+        }
+      ]
+    },
+    "relationBase": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "source_id",
+        "target_id",
+        "label",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 80},
+        "source_id": {"$ref": "#/$defs/identifier"},
+        "target_id": {"$ref": "#/$defs/identifier"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "evidence_ids": {"$ref": "#/$defs/evidenceIds"},
+        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+      },
+      "additionalProperties": false
+    },
+    "relationConstraint": {
+      "allOf": [
+        {"$ref": "#/$defs/relationBase"},
+        {
+          "type": "object",
+          "required": ["expectation"],
+          "properties": {
+            "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "entity_id", "action"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "entity_id": {"$ref": "#/$defs/identifier"},
+        "action": {"type": "string", "minLength": 1, "maxLength": 500},
+        "from_state": {"type": "string", "minLength": 1, "maxLength": 120},
+        "to_state": {"type": "string", "minLength": 1, "maxLength": 120}
+      },
+      "additionalProperties": false
+    },
+    "flowBase": {
+      "type": "object",
+      "required": ["id", "name", "steps", "evidence_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/step"}
+        },
+        "evidence_ids": {"$ref": "#/$defs/evidenceIds"},
+        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+      },
+      "additionalProperties": false
+    },
+    "flowConstraint": {
+      "allOf": [
+        {"$ref": "#/$defs/flowBase"},
+        {
+          "type": "object",
+          "required": ["expectation"],
+          "properties": {
+            "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+          }
+        }
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "required": ["id", "from_state", "to_state", "trigger"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "from_state": {"type": "string", "minLength": 1, "maxLength": 120},
+        "to_state": {"type": "string", "minLength": 1, "maxLength": 120},
+        "trigger": {"type": "string", "minLength": 1, "maxLength": 200}
+      },
+      "additionalProperties": false
+    },
+    "stateMachineBase": {
+      "type": "object",
+      "required": [
+        "id",
+        "entity_id",
+        "initial_state",
+        "states",
+        "transitions",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "entity_id": {"$ref": "#/$defs/identifier"},
+        "initial_state": {"type": "string", "minLength": 1, "maxLength": 120},
+        "states": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1, "maxLength": 120},
+          "uniqueItems": true
+        },
+        "transitions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/transition"}
+        },
+        "evidence_ids": {"$ref": "#/$defs/evidenceIds"},
+        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+      },
+      "additionalProperties": false
+    },
+    "stateMachineConstraint": {
+      "allOf": [
+        {"$ref": "#/$defs/stateMachineBase"},
+        {
+          "type": "object",
+          "required": ["expectation"],
+          "properties": {
+            "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+          }
+        }
+      ]
+    },
+    "currentState": {
+      "type": "object",
+      "required": [
+        "complete",
+        "entities",
+        "relations",
+        "flows",
+        "state_machines"
+      ],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "entities": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/entityBase"}
+        },
+        "relations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/relationBase"}
+        },
+        "flows": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/flowBase"}
+        },
+        "state_machines": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/stateMachineBase"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "desiredState": {
+      "type": "object",
+      "required": [
+        "complete",
+        "entities",
+        "relations",
+        "flows",
+        "state_machines"
+      ],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "entities": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/entityConstraint"}
+        },
+        "relations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/relationConstraint"}
+        },
+        "flows": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/flowConstraint"}
+        },
+        "state_machines": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/stateMachineConstraint"}
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

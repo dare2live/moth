@@ -97,6 +97,8 @@ moth takeover --repo /Users/dp/Documents/M/lifehack
 moth gates --repo /Users/dp/Documents/M/lifehack my_experiment
 moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind architecture_orchestration --plan-only --format json
 moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind architecture_orchestration --plan-only --format html --output /tmp/moth-lifehack.html
+moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind high_risk_change --change-phase pre --file backend/foo.py --plan-only --format json
+moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind high_risk_change --change-phase post --file backend/foo.py --format json
 ```
 
 Moth expects the current CodeGraph CLI surface (`status --json`,
@@ -160,6 +162,15 @@ after the host reads each Skill; only host-native trusted telemetry may produce
 `READY`. Absolute paths, Skill bodies, task text, amend trails, and raw receipt
 working files are removed from public inspection output.
 
+After executing the plan, a controller may pass a bounded
+`moth.guidance-application.v1` JSON array with `--application-reports`.
+Reports are bound to the run and current Skill digest and must name influenced
+decisions, evidence, and any structured conflict resolution. Missing, stale,
+invalid, or evidence-free reports remain `NOT_CLAIMED`; application evidence
+does not turn executor self-attestation into host verification. The report's
+`contract_id` and `loaded_at` must match its activation receipt, and every
+evidence reference must resolve in the current project-model evidence registry.
+
 The same `inspect` entry can render `moth.visual-document.v1` as a self-contained
 HTML project atlas. The renderer consumes only that normalized document; it
 does not call detectors or understand Omen, CodeGraph, Mio, Apple, Web, or any
@@ -169,13 +180,30 @@ Entity, relation, finding, and evidence rendering budgets live in
 `visual_policy.yaml`; truncated views publish omitted counts instead of
 silently expanding the DOM.
 
+Repositories may declare current and desired architecture in
+`.moth/architecture.yaml`. The validated v2 project model owns canonical
+entities, relations, business flows, and state machines; the HTML renderer
+only projects that contract. Free-form documents are provenance, not an
+automatic source of To-Be facts. Explicit `REQUIRED`/`FORBIDDEN` constraints
+produce `CONFORMANT`, `DRIFT_DETECTED`, or `UNVERIFIABLE` according to the
+declared As-Is coverage.
+
+`inspect --change-phase pre|during|post --file <repo-relative-path>` attaches
+`moth.change-safety.v1` to the same result. Repo-owned mandatory gates live in
+`.moth/change-safety.yaml`; optional `--gate` flags are additive.
+`--plan-only` runs read-only discovery but never executes gates. Affected tests
+remain `PLANNED` until a repository gate provides execution evidence, and
+Omen/complexity signals remain non-causal heuristics.
+
 `sync` refreshes the repo's CodeGraph index first and then emits a payload with
 both the sync result and the latest snapshot.
 
 `affected` combines CodeGraph `affected --json` with the profile's
 complexity command run against only the supplied changed files. It is intended
 for pre-review scoping: which tests are likely affected, and whether the files
-being changed introduce high-confidence complexity hotspots.
+being changed introduce high-confidence complexity hotspots. An empty
+`affectedTests` result without explicit provider completeness is
+`UNKNOWN_EMPTY`, returns `WARN`, and exits `2`; it is not a green test result.
 
 `coupling` is the pre-delete/pre-rename safety rail. Plain `moth coupling`
 checks for orphan references, and the same orphan check is included in every
@@ -227,8 +255,14 @@ repo-local profiles under the given root.
 `init` writes a repo-local scaffold at `.moth/profile.yaml` by default so
 Moth can auto-discover new repos without editing the bundled registry by hand.
 
-Exit codes are intentionally soft: `PASS` and `WARN` both exit `0`, and only
-`FAIL` exits non-zero. Warnings are carried in the JSON payload.
+Most snapshot-style compatibility commands keep the legacy soft behavior:
+`PASS` and `WARN` exit `0`, while `FAIL` exits non-zero. Change-safety results
+use `GO=0`, `NO_GO=1`, and `CAUTION=2`. The legacy `affected` command also
+returns `2` for `WARN` so unknown test coverage cannot appear green.
+
+The maintained upstream policy and observed evidence live in
+`docs/compatibility-matrix.yaml`; versions are observations, never exact
+compatibility ceilings. Migration details are in `docs/migration-next.md`.
 
 ## Credits
 

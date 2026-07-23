@@ -47,7 +47,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect.add_argument("--run-id")
     inspect.add_argument("--receipts")
+    inspect.add_argument(
+        "--application-reports",
+        help="Structured Guidance application evidence bound to this run",
+    )
     inspect.add_argument("--plan-only", action="store_true")
+    inspect.add_argument(
+        "--change-phase",
+        choices=("pre", "during", "post"),
+        help="Attach fail-closed change safety evidence to this inspection",
+    )
+    inspect.add_argument(
+        "--file",
+        "--changed-file",
+        dest="changed_files",
+        action="append",
+        default=[],
+        help="Explicit repository-relative changed file; may be repeated",
+    )
+    inspect.add_argument(
+        "--gate",
+        dest="change_gates",
+        action="append",
+        default=[],
+        help="Repository-owned gate to execute; ignored by --plan-only",
+    )
+    inspect.add_argument("--change-depth", type=int, default=5)
+    inspect.add_argument("--test-filter")
+    inspect.add_argument("--baseline-digest")
     inspect.add_argument("--format", choices=("markdown", "json", "html"), default="json")
     inspect.add_argument("--output")
 
@@ -169,13 +196,17 @@ def _resolve_inspection_profile(repo: str, profile_ref: str | None):
     return match_profile(repo) or build_default_profile(repo)
 
 
-def _load_receipts(path: str | None) -> list[dict[str, object]]:
+def _load_object_array(path: str | None, *, label: str) -> list[dict[str, object]]:
     if path is None:
         return []
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
-        raise ValueError("receipts must be a JSON array of objects")
+        raise ValueError(f"{label} must be a JSON array of objects")
     return payload
+
+
+def _load_receipts(path: str | None) -> list[dict[str, object]]:
+    return _load_object_array(path, label="receipts")
 
 
 def _render_mapping_block(mapping: dict[str, object]) -> list[str]:
@@ -197,14 +228,41 @@ def main(argv: list[str] | None = None) -> int:
         visual_document = None
         try:
             receipts = _load_receipts(args.receipts)
-            profile = _resolve_inspection_profile(args.repo, args.profile)
-            payload = build_inspection(
-                profile,
-                task_kind=args.task_kind,
-                run_id=args.run_id or f"run-{uuid.uuid4().hex}",
-                receipts=receipts,
-                codex_home=Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")),
+            application_reports = _load_object_array(
+                args.application_reports,
+                label="application reports",
             )
+            profile = _resolve_inspection_profile(args.repo, args.profile)
+            inspection_kwargs = {
+                "task_kind": args.task_kind,
+                "run_id": args.run_id or f"run-{uuid.uuid4().hex}",
+                "receipts": receipts,
+                "application_reports": application_reports,
+                "codex_home": Path(
+                    os.environ.get("CODEX_HOME", Path.home() / ".codex")
+                ),
+            }
+            if args.change_phase is not None:
+                inspection_kwargs.update(
+                    {
+                        "change_phase": f"{args.change_phase}_change",
+                        "changed_files": args.changed_files,
+                        "gate_names": args.change_gates,
+                        "change_depth": args.change_depth,
+                        "test_filter": args.test_filter,
+                        "baseline_digest": args.baseline_digest,
+                        "execute_gates": not args.plan_only,
+                    }
+                )
+            elif (
+                args.changed_files
+                or args.change_gates
+                or args.baseline_digest is not None
+            ):
+                raise ValueError(
+                    "change files, gates, and baseline require --change-phase"
+                )
+            payload = build_inspection(profile, **inspection_kwargs)
             if args.format == "html":
                 visual_document = build_visual_model(payload)
                 visual_errors = [
@@ -229,6 +287,11 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(rendered)
         if payload["status"] == "FAIL":
             return 1
+        change_verdict = payload.get("change_safety_verdict")
+        if change_verdict == "NO_GO":
+            return 1
+        if change_verdict == "CAUTION":
+            return 2
         if payload["status"] == "NEEDS_EXECUTOR" and not args.plan_only:
             return 2
         return 0
@@ -484,7 +547,11 @@ def main(argv: list[str] | None = None) -> int:
         rendered = render_json(payload) + "\n" if args.format == "json" else render_affected_markdown(payload)
         _write_output(args.output, rendered)
         sys.stdout.write(rendered)
-        return 0 if payload["status"] != "FAIL" else 1
+        if payload["status"] == "FAIL":
+            return 1
+        if payload["status"] == "WARN":
+            return 2
+        return 0
 
     return 2
 

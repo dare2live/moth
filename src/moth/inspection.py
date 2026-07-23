@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from moth.change_safety import build_change_safety
 from moth.orchestration import prepare_task_context
 from moth.snapshot import build_snapshot
 
@@ -88,7 +89,36 @@ def _portable_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     return sanitize_public_value(public_snapshot)
 
 
-def build_inspection(profile: Any, *, task_kind: str, run_id: str, receipts: list[dict[str, Any]], codex_home: str | Path) -> dict[str, Any]:
+def _project_evidence_ids(snapshot: dict[str, Any]) -> set[str]:
+    project_model = snapshot.get("project_model")
+    if not isinstance(project_model, dict):
+        return set()
+    evidence = project_model.get("evidence")
+    if not isinstance(evidence, list):
+        return set()
+    return {
+        item["id"]
+        for item in evidence
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+
+
+def build_inspection(
+    profile: Any,
+    *,
+    task_kind: str,
+    run_id: str,
+    receipts: list[dict[str, Any]],
+    codex_home: str | Path,
+    application_reports: list[dict[str, Any]] | None = None,
+    change_phase: str | None = None,
+    changed_files: list[str] | None = None,
+    gate_names: list[str] | None = None,
+    change_depth: int = 5,
+    test_filter: str | None = None,
+    baseline_digest: str | None = None,
+    execute_gates: bool = True,
+) -> dict[str, Any]:
     raw_snapshot = build_snapshot(profile)
     orchestration = prepare_task_context(
         profile.instruction_sources,
@@ -96,6 +126,8 @@ def build_inspection(profile: Any, *, task_kind: str, run_id: str, receipts: lis
         run_id=run_id,
         receipts=receipts,
         codex_home=codex_home,
+        application_reports=application_reports,
+        available_evidence_ids=_project_evidence_ids(raw_snapshot),
     )
     project_health = str(raw_snapshot.get("status", "FAIL"))
     readiness = orchestration["decision_context"]["context_readiness"]
@@ -116,6 +148,20 @@ def build_inspection(profile: Any, *, task_kind: str, run_id: str, receipts: lis
         "snapshot": _portable_snapshot(raw_snapshot),
         "orchestration": orchestration,
     }
+    if change_phase is not None:
+        change_safety = build_change_safety(
+            profile,
+            snapshot=raw_snapshot,
+            changed_files=list(changed_files or []),
+            phase=change_phase,
+            gate_names=list(gate_names or []),
+            depth=change_depth,
+            test_filter=test_filter,
+            baseline_digest=baseline_digest,
+            execute_gates=execute_gates,
+        )
+        inspection["change_safety"] = change_safety
+        inspection["change_safety_verdict"] = change_safety["verdict"]
     return sanitize_public_value(inspection)
 
 
@@ -163,6 +209,20 @@ def render_inspection_markdown(result: dict[str, Any]) -> str:
         lines.append("- Guidance order: " + " -> ".join(context["ordered_guidance_sources"]))
     if context.get("missing_required_sources"):
         lines.append("- Missing verified sources: " + ", ".join(context["missing_required_sources"]))
+    change_safety = result.get("change_safety")
+    if isinstance(change_safety, dict):
+        lines.extend(
+            [
+                f"- Change phase: `{change_safety.get('phase', 'UNKNOWN')}`",
+                f"- Change safety: `{change_safety.get('verdict', 'NO_GO')}`",
+            ]
+        )
+        reasons = change_safety.get("reasons")
+        if isinstance(reasons, list) and reasons:
+            lines.append(
+                "- Change reasons: "
+                + ", ".join(sanitize_public_text(item) for item in reasons)
+            )
     issues = result.get("issues")
     if isinstance(issues, list) and issues:
         lines.extend(["", "## Issues"])

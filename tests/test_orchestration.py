@@ -61,5 +61,29 @@ sources:
         "architect-controller",
     ]
     assert result["decision_context"]["context_readiness"] == "BLOCKED"
+    assert result["decision_context"]["guidance_applications"] == [
+        {
+            "source_id": "mio",
+            "report_state": "NONE",
+            "application_state": "NOT_CLAIMED",
+            "contract_id": None,
+            "loaded_at": None,
+            "decision_summary": None,
+            "evidence_refs": [],
+            "decisions_influenced": [],
+            "conflicts": [],
+        },
+        {
+            "source_id": "architect-controller",
+            "report_state": "NONE",
+            "application_state": "NOT_CLAIMED",
+            "contract_id": None,
+            "loaded_at": None,
+            "decision_summary": None,
+            "evidence_refs": [],
+            "decisions_influenced": [],
+            "conflicts": [],
+        },
+    ]
     assert str(tmp_path) not in repr(result)
     assert "Private body" not in repr(result)

@@ -1395,6 +1395,9 @@ executor contract 的遥测才能把上下文判为 `READY`；
 - 官方上游识别为 `panbanda/omen`，本机通过
   `brew install panbanda/brews/omen` 安装；`omen 4.25.0` 只是本轮实测版本，
   不是允许版本上限；
+- CodeGraph 已从本机观测到的 `1.2.0` 更新至官方最新稳定版 `1.5.0`，既有
+  `status`、`affected`、`explore` 和 Moth 归一化合同重跑通过；该数字同样只是
+  观测证据，后续更新仍以能力和 JSON 输出合同为准；
 - `hotspot --top 10` 与 `changes --top 10` 均能对 Moth 仓库输出紧凑 JSON，
   且运行前后未产生仓库文件；
 - 首个适配面限定为 `hotspot`、`changes`、`diff`，记录观察到的版本和归一化状态，
@@ -1435,6 +1438,22 @@ executor contract 的遥测才能把上下文判为 `READY`；
 
 这一阶段只实现通用协议，以 Mio 和 architect-controller 作为两个不同角色的真实样本；
 不得在 Moth Core 复制任一 Skill 正文或把发现状态冒充实际应用。
+
+### 阶段二实施进度（2026-07-23）
+
+- Moth 单入口从用户 Guidance 注册表与项目 Profile 合并来源，并按 DAG 固定得到
+  `mio → architect-controller`；发现、适用性、加载回执和应用证据是四个正交状态；
+- 本地 helper 只能签发与 run/source digest 绑定的 `SELF_ATTESTED` 回执，不能冒充
+  宿主验证；`READY` 保留给未来真实的 host-native 可信遥测，这个诚实边界不是
+  Moth Core 可以靠增加一个布尔值“实现”的能力；
+- `moth.guidance-application.v1` 独立记录某个 Guidance 影响的决策、证据引用以及
+  与其他 Guidance 的结构化冲突和解决方式；缺失、过期、重复、证据不足或来源未发现
+  都保持 `NOT_CLAIMED`，只有有效合同才是 `APPLIED_WITH_EVIDENCE`；
+- application report 的 `contract_id/loaded_at` 必须与同一来源的有效加载回执一致，
+  每个决策必须有摘要，全部 evidence ref 必须能在本次 ProjectModel 证据注册表解析；
+  悬空或臆造引用不能把状态升绿；
+- CLI 通过 `--application-reports` 把该合同送入同一个 `moth inspect`，Core 不解析
+  Skill 正文或聊天文本来猜测“是否应用”，应用证据也不会把自证加载升级成平台验证。
 
 ## 阶段三：最小可视化闭环
 
@@ -1482,7 +1501,8 @@ executor contract 的遥测才能把上下文判为 `READY`；
 
 当前实现已经形成配置驱动、渲染器无关的第二个可恢复检查点：
 
-- `moth.project-model.v1` 由 detector registry 汇总，探测规则和扫描预算集中在
+- `moth.project-model.v2` 由 detector registry 与独立 ArchitectureModel 汇总，
+  同时保留 v1 形状的兼容投影；探测规则和扫描预算集中在
   `platform_rules.yaml`，并由 JSON Schema fail closed 校验；Core 不按框架名写分支；
 - Apple、Web/API、微信/支付宝小程序、数据/AI、多仓库 detector 只读取仓内清单和
   结构证据，不跟随 symlink，不泄露 `.gitmodules` URL，不把包名猜测成平台；
@@ -1493,8 +1513,12 @@ executor contract 的遥测才能把上下文判为 `READY`；
   行动和证据全局去重并用引用连接；层和视角来自 `visual_policy.yaml`；
 - `moth inspect --format html --output <report.html>` 通过同一个 Moth 入口生成
   自包含静态报告，包含六层、三视角、首页优先项、禁止项和统一问题解释卡；
-- As-Is 只显示已观察事实；To-Be 无权威声明时明确显示 `NOT_DECLARED`，当前仍未
-  实现仓内目标架构摄取与 drift 计算，因此阶段四只能记为 `PARTIAL`；
+- As-Is 只显示已观察事实；To-Be 只读取仓库拥有且经 Schema 校验的
+  `.moth/architecture.yaml`，自由文本只能作为 provenance，不能自动变成架构事实；
+  显式 `REQUIRED/FORBIDDEN` 约束会与 As-Is 比较，覆盖不足时返回
+  `UNVERIFIABLE`，不会把未知洗成符合或违规；
+- 统一模型已经承载服务、关系、真实流程和状态机；入口或 runtime 关系不会冒充
+  业务流程，To-Be 中尚未存在于 As-Is 的新实体也会被保留；
 - 真实浏览器验收覆盖 1280px 桌面与 390×844 移动视口：无外部资源和控制台错误，
   无重复 ID 或失效内部锚点，移动端无根文档横向溢出，导航触控高度至少 44px。
 - 实体、关系、问题和证据分别受 `visual_policy.yaml` 容量预算约束；10,000 应用、
@@ -1527,6 +1551,22 @@ executor contract 的遥测才能把上下文判为 `READY`；
 - 修改后对比；
 - GO、CAUTION、NO-GO；
 - 浏览器和大模型共享结果。
+
+### 阶段六、七实施进度（2026-07-23）
+
+- `moth inspect` 是变更前、中、后的同一入口；机制由
+  `change_safety.py` 提供，通用 verdict 与预算在包内 policy，目标仓库必须通过
+  `.moth/change-safety.yaml` 声明自己的 mandatory gates；
+- CodeGraph 影响范围、affected tests、Omen/Complexity 提示和 gate 结果经统一
+  evidence/association 合同引用 ProjectModel 实体，不反写 ArchitectureIntent；
+- `affectedTests` 永远只是 `PLANNED`，不是执行证明；provider 返回空列表但没有
+  completeness 证据时为 `UNKNOWN_EMPTY`，旧 `moth affected` 也返回 WARN/exit 2，
+  已消除本轮实测的空测试假绿；
+- Omen 与 Complexity 只产生 `HEURISTIC` 且 `causal_claim=false` 的提示，单独最多
+  `CAUTION`，不能被提升为根因或 `NO_GO`；
+- `--plan-only` 不执行任何 gate；变更安全退出码固定为
+  `GO=0 / NO_GO=1 / CAUTION=2`，目标仓库 mandatory gate 与命令行附加 gate 使用
+  additive 合并，不能被调用者替换或跳过。
 
 ## 阶段八：工具和上游管理
 

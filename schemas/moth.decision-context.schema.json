@@ -10,8 +10,11 @@
     "guidance",
     "not_applicable_sources",
     "activation_receipts",
+    "guidance_applications",
     "missing_required_sources",
     "self_attested_required_sources",
+    "application_readiness",
+    "missing_application_sources",
     "context_readiness",
     "project_health_affected"
   ],
@@ -97,10 +100,111 @@
         "additionalProperties": false
       }
     },
+    "guidance_applications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "report_state",
+          "application_state",
+          "contract_id",
+          "loaded_at",
+          "decision_summary",
+          "evidence_refs",
+          "decisions_influenced",
+          "conflicts"
+        ],
+        "properties": {
+          "source_id": {
+            "$ref": "#/$defs/id"
+          },
+          "report_state": {
+            "enum": ["NONE", "VALID", "INVALID", "STALE"]
+          },
+          "application_state": {
+            "enum": ["NOT_CLAIMED", "APPLIED_WITH_EVIDENCE"]
+          },
+          "contract_id": {
+            "oneOf": [
+              {"$ref": "#/$defs/id"},
+              {"type": "null"}
+            ]
+          },
+          "loaded_at": {
+            "type": ["string", "null"]
+          },
+          "decision_summary": {
+            "type": ["string", "null"]
+          },
+          "evidence_refs": {
+            "$ref": "#/$defs/ref_list"
+          },
+          "decisions_influenced": {
+            "type": "array",
+            "items": {
+              "type": "object",
+                "required": ["decision_id", "summary", "evidence_refs"],
+                "properties": {
+                  "decision_id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                "evidence_refs": {
+                  "$ref": "#/$defs/ref_list"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "conflict_id",
+                "with_source_ids",
+                "resolution",
+                "evidence_refs"
+              ],
+              "properties": {
+                "conflict_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "with_source_ids": {
+                  "$ref": "#/$defs/id_list"
+                },
+                "resolution": {
+                  "enum": [
+                    "ACCEPT_GUIDANCE",
+                    "REJECT_GUIDANCE",
+                    "MERGED",
+                    "DEFERRED"
+                  ]
+                },
+                "evidence_refs": {
+                  "$ref": "#/$defs/ref_list"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "missing_required_sources": {
       "$ref": "#/$defs/id_list"
     },
     "self_attested_required_sources": {
+      "$ref": "#/$defs/id_list"
+    },
+    "application_readiness": {
+      "enum": ["NOT_REPORTED", "COMPLETE", "BLOCKED"]
+    },
+    "missing_application_sources": {
       "$ref": "#/$defs/id_list"
     },
     "context_readiness": {
@@ -121,6 +225,14 @@
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/id"
+      }
+    },
+    "ref_list": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
       }
     }
   },

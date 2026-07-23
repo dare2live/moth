@@ -1,0 +1,205 @@
+schema_version: moth.architecture-declaration.v1
+evidence:
+  - id: upgrade-plan
+    kind: architecture_document
+    path: Moth_Next_大版本升级方案.md
+  - id: operating-model
+    kind: architecture_document
+    path: docs/operating-model.md
+
+current:
+  # This declaration covers Moth's public orchestration spine, not every helper.
+  # Incomplete coverage must never be used to prove an absent component.
+  complete: false
+  entities:
+    - id: service:inspection
+      kind: service
+      name: Inspection orchestrator
+      responsibility: Compose project health, Guidance, and optional change safety.
+      locator: src/moth/inspection.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:guidance-application
+      kind: service
+      name: Guidance application evidence
+      responsibility: Validate structured decision influence and conflict evidence independently from activation receipts.
+      locator: src/moth/guidance_application.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:snapshot
+      kind: service
+      name: Snapshot service
+      responsibility: Build the current repository evidence snapshot.
+      locator: src/moth/snapshot.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:project-model
+      kind: service
+      name: Project model
+      responsibility: Normalize detector facts into the portable project topology.
+      locator: src/moth/project_model.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:architecture-model
+      kind: service
+      name: Architecture model
+      responsibility: Merge observed topology with repository-owned architecture intent.
+      locator: src/moth/architecture_model.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:change-safety
+      kind: service
+      name: Change safety
+      responsibility: Assess bounded impact, affected-test plans, heuristics, and repo gates.
+      locator: src/moth/change_safety.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:visual-model
+      kind: service
+      name: Visual model
+      responsibility: Project normalized contracts into a renderer-neutral visual document.
+      locator: src/moth/visual_model.py
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:html-report
+      kind: service
+      name: HTML report
+      responsibility: Render the visual document without owning audit truth.
+      locator: src/moth/html_report.py
+      evidence_ids: [upgrade-plan, operating-model]
+  relations:
+    - id: relation:inspection-snapshot
+      kind: calls
+      source_id: service:inspection
+      target_id: service:snapshot
+      label: builds snapshot
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:project-architecture
+      kind: calls
+      source_id: service:project-model
+      target_id: service:architecture-model
+      label: normalizes architecture
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:inspection-change-safety
+      kind: calls
+      source_id: service:inspection
+      target_id: service:change-safety
+      label: assesses optional change context
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:inspection-guidance-application
+      kind: calls
+      source_id: service:inspection
+      target_id: service:guidance-application
+      label: validates Guidance application evidence
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:visual-html
+      kind: depends_on
+      source_id: service:html-report
+      target_id: service:visual-model
+      label: renders visual document
+      evidence_ids: [upgrade-plan, operating-model]
+  flows:
+    - id: flow:inspect
+      name: One-call inspection
+      steps:
+        - id: step:inspect-start
+          entity_id: service:inspection
+          action: receive one Moth inspection request
+          from_state: idle
+          to_state: inspecting
+        - id: step:inspect-snapshot
+          entity_id: service:snapshot
+          action: collect current repository evidence
+          from_state: inspecting
+          to_state: snapshot_ready
+        - id: step:inspect-guidance
+          entity_id: service:guidance-application
+          action: validate structured Guidance decision evidence
+          from_state: snapshot_ready
+          to_state: guidance_assessed
+        - id: step:inspect-visual
+          entity_id: service:visual-model
+          action: build a renderer-neutral document when requested
+          from_state: guidance_assessed
+          to_state: modeled
+        - id: step:inspect-render
+          entity_id: service:html-report
+          action: render the validated visual document
+          from_state: modeled
+          to_state: rendered
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: flow:change-safety
+      name: Change safety assessment
+      steps:
+        - id: step:change-intake
+          entity_id: service:inspection
+          action: receive explicit phase and repository-relative scope
+        - id: step:change-assess
+          entity_id: service:change-safety
+          action: produce GO, CAUTION, or NO_GO from normalized evidence
+      evidence_ids: [upgrade-plan, operating-model]
+  state_machines:
+    - id: state-machine:inspection
+      entity_id: service:inspection
+      initial_state: idle
+      states: [idle, inspecting, assessed, rendered, failed]
+      transitions:
+        - id: transition:inspect
+          from_state: idle
+          to_state: inspecting
+          trigger: inspect request
+        - id: transition:assess
+          from_state: inspecting
+          to_state: assessed
+          trigger: change context completed
+        - id: transition:render
+          from_state: assessed
+          to_state: rendered
+          trigger: renderer completed
+        - id: transition:fail
+          from_state: inspecting
+          to_state: failed
+          trigger: required evidence failed
+      evidence_ids: [upgrade-plan, operating-model]
+
+desired:
+  complete: false
+  entities:
+    - id: service:inspection
+      kind: service
+      name: Inspection orchestrator
+      responsibility: Compose project health, Guidance, and optional change safety.
+      locator: src/moth/inspection.py
+      expectation: REQUIRED
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:guidance-application
+      kind: service
+      name: Guidance application evidence
+      responsibility: Validate structured decision influence and conflict evidence independently from activation receipts.
+      locator: src/moth/guidance_application.py
+      expectation: REQUIRED
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:architecture-model
+      kind: service
+      name: Architecture model
+      responsibility: Merge observed topology with repository-owned architecture intent.
+      locator: src/moth/architecture_model.py
+      expectation: REQUIRED
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: service:change-safety
+      kind: service
+      name: Change safety
+      responsibility: Assess bounded impact, affected-test plans, heuristics, and repo gates.
+      locator: src/moth/change_safety.py
+      expectation: REQUIRED
+      evidence_ids: [upgrade-plan, operating-model]
+  relations:
+    - id: relation:inspection-change-safety
+      kind: calls
+      source_id: service:inspection
+      target_id: service:change-safety
+      label: assesses optional change context
+      expectation: REQUIRED
+      evidence_ids: [upgrade-plan, operating-model]
+    - id: relation:inspection-guidance-application
+      kind: calls
+      source_id: service:inspection
+      target_id: service:guidance-application
+      label: validates Guidance application evidence
+      expectation: REQUIRED
+      evidence_ids: [upgrade-plan, operating-model]
+  flows: []
+  state_machines: []
