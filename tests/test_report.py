@@ -19,7 +19,15 @@ def _coupling_pass(monkeypatch) -> None:
     )
 
 
-def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
+def test_build_report_surfaces_tooling_evidence(monkeypatch, tmp_path) -> None:
+    codex_home = tmp_path / "codex-home"
+    skill_dir = codex_home / "skills" / "mio"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: mio\ndescription: Personal collaboration lens.\n---\n# Mio\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     base_profile = load_profile("chunkymonkey")
     profile = RepoProfile(
         kind=base_profile.kind,
@@ -29,7 +37,27 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
         complexity_command=base_profile.complexity_command,
         complexity_baseline_path=base_profile.complexity_baseline_path,
         evidence_paths=base_profile.evidence_paths,
-        instruction_sources={"active": ["AGENTS.md"], "ignored_by_default": ["CLAUDE.md"]},
+        instruction_sources={
+            "active": ["AGENTS.md"],
+            "ignored_by_default": ["CLAUDE.md"],
+            "sources": [
+                {
+                    "id": "mio",
+                    "kind": "collaboration_lens",
+                    "provider": "codex_skill",
+                    "ref": "skill:mio",
+                    "activation": "substantive_judgment",
+                    "requirement": "required_when_active",
+                    "scope": "user",
+                    "owner": "user",
+                    "sensitivity": "personal",
+                    "egress_policy": "metadata_only",
+                    "state": "APPLIED_WITH_EVIDENCE",
+                    "body": "private amend trail",
+                    "resolved_path_local_only": str(skill_dir / "SKILL.md"),
+                }
+            ],
+        },
         notes=base_profile.notes,
     )
 
@@ -90,7 +118,15 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch) -> None:
     assert payload["complexity"]["summary"]["finding_count"] == 1
     assert payload["complexity"]["baseline"]["status"] == "not_configured"
     assert payload["profile"]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
+    assert "body" not in payload["profile"]["instruction_sources"]["sources"][0]
+    assert "resolved_path_local_only" not in payload["profile"]["instruction_sources"]["sources"][0]
+    assert payload["guidance"]["verdict"] == "PASS"
+    assert payload["guidance"]["sources"][0]["state"] == "DISCOVERED"
     assert payload["warnings"]
+    rendered = report_module.render_markdown(payload)
+    assert "## Guidance" in rendered
+    assert "private amend trail" not in rendered
+    assert str(skill_dir) not in rendered
 
 
 def test_build_report_fails_on_coupling_orphans(monkeypatch) -> None:

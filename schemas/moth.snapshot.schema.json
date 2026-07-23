@@ -44,6 +44,116 @@
     "complexity": {
       "type": "object",
       "additionalProperties": true
+    },
+    "guidance": {
+      "type": "object",
+      "required": ["schema_version", "verdict", "sources", "issues", "warnings"],
+      "properties": {
+        "schema_version": {
+          "const": "moth.guidance.v1"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "FAIL"]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "provider",
+              "ref",
+              "activation",
+              "requirement",
+              "scope",
+              "owner",
+              "sensitivity",
+              "egress_policy",
+              "state",
+              "source_digest",
+              "source_mtime",
+              "body_exported",
+              "issues"
+            ],
+            "properties": {
+              "id": {"type": "string"},
+              "kind": {"type": "string"},
+              "provider": {"type": "string"},
+              "ref": {"type": "string"},
+              "activation": {"type": "string"},
+              "requirement": {"type": "string"},
+              "scope": {"type": "string"},
+              "owner": {"type": "string"},
+              "sensitivity": {"type": "string"},
+              "egress_policy": {"type": "string"},
+              "state": {
+                "type": "string",
+                "enum": ["UNAVAILABLE", "INVALID", "DISCOVERED"]
+              },
+              "source_digest": {
+                "type": ["string", "null"],
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "source_mtime": {
+                "type": ["string", "null"]
+              },
+              "body_exported": {"const": false},
+              "issues": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {"enum": ["UNAVAILABLE", "DISCOVERED"]}
+                  },
+                  "required": ["state"]
+                },
+                "then": {
+                  "properties": {
+                    "id": {"pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"},
+                    "kind": {
+                      "enum": ["collaboration_lens", "controller_protocol"]
+                    },
+                    "provider": {"const": "codex_skill"},
+                    "ref": {"pattern": "^skill:[A-Za-z0-9][A-Za-z0-9_-]*$"},
+                    "activation": {
+                      "enum": ["always", "manual", "substantive_judgment"]
+                    },
+                    "requirement": {
+                      "enum": ["optional", "required_when_active"]
+                    },
+                    "scope": {
+                      "enum": ["project", "user", "workspace"]
+                    },
+                    "owner": {"pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+                    "sensitivity": {
+                      "enum": ["internal", "personal", "public"]
+                    },
+                    "egress_policy": {
+                      "enum": ["allow_body", "local_only", "metadata_only"]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": true

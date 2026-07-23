@@ -163,6 +163,12 @@ def test_relative_profile_path_resolves_against_cwd(tmp_path, monkeypatch) -> No
     assert profile.repo_path == repo.resolve()
 
 
+def test_profile_scaffold_declares_empty_typed_guidance_sources(tmp_path) -> None:
+    payload = build_profile_scaffold(tmp_path / "sample-repo")
+
+    assert payload["instruction_sources"] == {"sources": []}
+
+
 def test_match_profile_by_repo_path() -> None:
     profile = match_profile("/Users/dp/Documents/M/stock/chunkymonkey")
     assert profile is not None

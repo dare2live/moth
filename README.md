@@ -106,6 +106,20 @@ profile pins an external `complexity_command`:
 npm install -g codex-complexity-optimizer
 ```
 
+Omen is an optional analyzer, not a current snapshot dependency. The verified
+upstream is `panbanda/omen`; install its CLI with:
+
+```bash
+brew install panbanda/brews/omen
+omen --version
+omen --path . --format json --compact hotspot --top 10
+```
+
+Moth's next Omen adapter should consume bounded `hotspot`, `changes`, and
+`diff` JSON. It must not make `omen all` a release gate: individual analyzer
+failures need explicit, per-capability verdicts instead of being hidden behind
+an aggregate exit status.
+
 The official installer writes the analyzer under
 `${CODEX_HOME:-~/.codex}/skills/complexity-optimizer`; profile command entries
 may use `~` or environment variables, and Moth expands them before execution.
@@ -115,6 +129,30 @@ machine-readable entrypoint.
 
 Snapshots include a stable `schema_version` and `generated_at` timestamp so
 other models can consume them without guessing the payload shape.
+
+Profiles may also declare typed guidance sources by logical ID:
+
+```yaml
+instruction_sources:
+  sources:
+    - id: mio
+      kind: collaboration_lens
+      provider: codex_skill
+      ref: skill:mio
+      activation: substantive_judgment
+      requirement: required_when_active
+      scope: user
+      owner: user
+      sensitivity: personal
+      egress_policy: metadata_only
+```
+
+Moth resolves `skill:mio` against `${CODEX_HOME:-~/.codex}` and publishes
+identity, SHA-256 digest, mtime, and availability only. The current contract is
+deliberately discovery-only: `UNAVAILABLE`, `INVALID`, or `DISCOVERED` do not
+claim that an agent loaded or applied the skill. Absolute paths, skill bodies,
+and caller-supplied activation claims are removed from public profile and
+snapshot output.
 
 `sync` refreshes the repo's CodeGraph index first and then emits a payload with
 both the sync result and the latest snapshot.
@@ -182,6 +220,7 @@ Exit codes are intentionally soft: `PASS` and `WARN` both exit `0`, and only
 Moth credits the workflow and tooling foundations of:
 
 - CodeGraph
+- Omen
 - complexity-optimizer
 - ChunkyMonkey
 - LifeHack governance patterns

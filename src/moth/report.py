@@ -16,6 +16,7 @@ from moth.checks.coupling import orphans as run_coupling_orphans
 from moth.checks.import_cycles import audit_import_cycles_for_profile
 from moth.checks.dirty_worktree import git_status
 from moth.checks.startup import check_profile
+from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
 from moth.profiles.loader import RepoProfile
 from moth.profiles.loader import discover_profiles
 from moth.profiles.loader import list_profiles
@@ -31,6 +32,12 @@ def _jsonable(value: Any) -> Any:
     if hasattr(value, "as_posix"):
         return str(value)
     return value
+
+
+def _public_profile(profile: RepoProfile) -> dict[str, Any]:
+    payload = asdict(profile)
+    payload["instruction_sources"] = sanitize_instruction_sources(profile.instruction_sources)
+    return _jsonable(payload)
 
 
 def _warnings_from_dirty(dirty: list[str]) -> list[str]:
@@ -107,6 +114,7 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
 
     assertions = run_assertion_packs(profile.assertion_packs, profile.repo_path)
     coupling = run_coupling_orphans(profile.repo_path)
+    guidance = resolve_guidance_sources(profile.instruction_sources)
     # 可选功能: profile 配置了 import_cycles 才跑, 未配置不惩罚 (SKIP)。
     if profile.import_cycles:
         import_cycles = audit_import_cycles_for_profile(profile)
@@ -118,7 +126,11 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
     warnings.extend(_warnings_from_codegraph(codegraph))
     warnings.extend(_warnings_from_complexity(complexity))
     warnings.extend(_complexity_excludes_warning(profile))
+    if guidance["verdict"] == "WARN":
+        warnings.extend(f"guidance: {item}" for item in guidance["warnings"])
 
+    if guidance["verdict"] == "FAIL":
+        issues.extend(f"guidance: {item}" for item in guidance["issues"])
     if codegraph.get("verdict") == "FAIL":
         issues.extend(codegraph.get("issues") or ["codegraph status failed"])
     if complexity.get("verdict") == "FAIL":
@@ -147,13 +159,14 @@ def build_report(profile: RepoProfile) -> dict[str, Any]:
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "generated_at": utc_now_iso(),
         "status": status,
-        "profile": _jsonable(asdict(profile)),
+        "profile": _public_profile(profile),
         "issues": issues,
         "warnings": warnings,
         "dirty_worktree": dirty,
         "codegraph": _jsonable(codegraph),
         "complexity": _jsonable(complexity),
         "coupling": _jsonable(coupling),
+        "guidance": _jsonable(guidance),
         "import_cycles": _jsonable(import_cycles),
         "assertions": _jsonable(assertions),
     }
@@ -234,7 +247,7 @@ def build_affected_report(
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "generated_at": utc_now_iso(),
         "status": status,
-        "profile": _jsonable(asdict(profile)),
+        "profile": _public_profile(profile),
         "input_files": files,
         "depth": depth,
         "test_filter": test_filter,
@@ -247,7 +260,8 @@ def build_affected_report(
 
 def _serialize_profile(profile: RepoProfile) -> dict[str, Any]:
     issues = check_profile(profile)
-    status = "PASS" if not issues else "WARN"
+    guidance = resolve_guidance_sources(profile.instruction_sources)
+    status = "PASS" if not issues and guidance["verdict"] == "PASS" else "WARN"
     return {
         "kind": profile.kind,
         "name": profile.name,
@@ -257,7 +271,8 @@ def _serialize_profile(profile: RepoProfile) -> dict[str, Any]:
         "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
         "complexity_excludes": profile.complexity_excludes,
         "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
-        "instruction_sources": profile.instruction_sources,
+        "instruction_sources": sanitize_instruction_sources(profile.instruction_sources),
+        "guidance": guidance,
         "notes": profile.notes,
         "status": status,
         "issues": issues,
@@ -378,6 +393,24 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(_render_mapping("Evidence paths", profile["evidence_paths"]))
     if profile.get("instruction_sources"):
         lines.extend(_render_mapping("Instruction sources", profile["instruction_sources"]))
+    lines.append("")
+    guidance = report.get("guidance") or {}
+    lines.append("## Guidance")
+    lines.append(f"- Verdict: `{guidance.get('verdict', 'UNKNOWN')}`")
+    lines.append(f"- Schema version: `{guidance.get('schema_version', '?')}`")
+    for source in guidance.get("sources") or []:
+        lines.append(
+            f"- `{source.get('id', '?')}`: `{source.get('state', 'UNKNOWN')}`"
+            f" ({source.get('ref', '?')})"
+        )
+        if source.get("source_digest"):
+            lines.append(f"  - Source digest: `{source['source_digest']}`")
+        if source.get("source_mtime"):
+            lines.append(f"  - Source mtime: `{source['source_mtime']}`")
+    if guidance.get("issues"):
+        lines.extend(_render_list("Guidance issues", guidance["issues"]))
+    if guidance.get("warnings"):
+        lines.extend(_render_list("Guidance warnings", guidance["warnings"]))
     lines.append("")
     lines.extend(_render_list("Issues", report.get("issues") or []))
     lines.append("")

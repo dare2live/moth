@@ -18,4 +18,18 @@ evidence_paths:
   workflow_checkpoint: analysis/workflow_checkpoint.md
   quickstart: docs/chunkyctl_session_quickstart.md
   docs: docs
+instruction_sources:
+  sources: []
+# Example personal guidance source (logical reference only; never commit a
+# machine-local path or private body):
+#   - id: mio
+#     kind: collaboration_lens
+#     provider: codex_skill
+#     ref: skill:mio
+#     activation: substantive_judgment
+#     requirement: required_when_active
+#     scope: user
+#     owner: user
+#     sensitivity: personal
+#     egress_policy: metadata_only
 notes: Replace with repo-specific paths and checks.

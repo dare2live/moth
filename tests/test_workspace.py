@@ -49,7 +49,28 @@ def test_build_workspace_report_includes_snapshots(monkeypatch) -> None:
             "name": "alpha",
             "repo_path": "/tmp/workspace/alpha",
             "codegraph_root": "/tmp/workspace/alpha",
-            "instruction_sources": {"active": ["AGENTS.md"], "ignored_by_default": ["CLAUDE.md"]},
+            "instruction_sources": {
+                "active": ["AGENTS.md"],
+                "ignored_by_default": ["CLAUDE.md"],
+                "body": "private Mio body",
+                "resolved_path_local_only": "/Users/private/.codex/skills/mio/SKILL.md",
+                "sources": [
+                    {
+                        "id": "mio",
+                        "kind": "collaboration_lens",
+                        "provider": "codex_skill",
+                        "ref": "skill:mio",
+                        "activation": "substantive_judgment",
+                        "requirement": "required_when_active",
+                        "scope": "user",
+                        "owner": "user",
+                        "sensitivity": "personal",
+                        "egress_policy": "metadata_only",
+                        "state": "APPLIED_WITH_EVIDENCE",
+                        "receipt": {"fake": True},
+                    }
+                ],
+            },
         },
     )()
 
@@ -94,3 +115,8 @@ def test_build_workspace_report_includes_snapshots(monkeypatch) -> None:
     assert payload["summary"]["snapshot_pass_count"] == 1
     assert payload["snapshots"][0]["profile"]["name"] == "alpha"
     assert payload["snapshots"][0]["profile"]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
+    serialized = repr(payload)
+    assert "private Mio body" not in serialized
+    assert "/Users/private" not in serialized
+    assert "APPLIED_WITH_EVIDENCE" not in serialized
+    assert "receipt" not in serialized

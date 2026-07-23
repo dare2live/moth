@@ -5,6 +5,7 @@ import shlex
 import sys
 from pathlib import Path
 
+from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
 from moth.profiles.loader import load_profile, match_profile
 from moth.profiles.scaffold import build_profile_scaffold
 from moth.profiles.scaffold import default_profile_path
@@ -275,7 +276,8 @@ def main(argv: list[str] | None = None) -> int:
             "complexity_baseline_path": str(profile.complexity_baseline_path) if profile.complexity_baseline_path else None,
             "complexity_excludes": profile.complexity_excludes,
             "evidence_paths": {label: str(path) for label, path in profile.evidence_paths.items()},
-            "instruction_sources": profile.instruction_sources,
+            "instruction_sources": sanitize_instruction_sources(profile.instruction_sources),
+            "guidance": resolve_guidance_sources(profile.instruction_sources),
             "notes": profile.notes,
         }
         if args.format == "markdown":

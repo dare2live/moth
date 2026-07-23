@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from moth.guidance import sanitize_instruction_sources
 from moth.profiles.loader import discover_profiles
 from moth.report import build_profiles_report
 from moth.snapshot import build_snapshot
@@ -32,7 +33,9 @@ def build_workspace_report(workspace_root: str) -> dict[str, Any]:
                     "complexity_baseline_path": str(getattr(profile, "complexity_baseline_path", None))
                     if getattr(profile, "complexity_baseline_path", None)
                     else None,
-                    "instruction_sources": getattr(profile, "instruction_sources", {}),
+                    "instruction_sources": sanitize_instruction_sources(
+                        getattr(profile, "instruction_sources", {})
+                    ),
                 },
                 "snapshot": snapshot,
                 "status": snapshot.get("status", "UNKNOWN"),

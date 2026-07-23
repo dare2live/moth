@@ -258,6 +258,60 @@ def test_profile_emits_instruction_sources_json(tmp_path, capsys) -> None:
     assert payload["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
 
 
+def test_profile_resolves_guidance_sources_json(tmp_path, monkeypatch, capsys) -> None:
+    repo = tmp_path / "sample-repo"
+    repo.mkdir()
+    codex_home = tmp_path / "codex-home"
+    skill_dir = codex_home / "skills" / "mio"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: mio\ndescription: Personal collaboration lens.\n---\n# Mio\n",
+        encoding="utf-8",
+    )
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: sample",
+                f"repo_path: {repo}",
+                "codegraph_root: .",
+                "instruction_sources:",
+                "  sources:",
+                "    - id: mio",
+                "      kind: collaboration_lens",
+                "      provider: codex_skill",
+                "      ref: skill:mio",
+                "      activation: substantive_judgment",
+                "      requirement: required_when_active",
+                "      scope: user",
+                "      owner: user",
+                "      sensitivity: personal",
+                "      egress_policy: metadata_only",
+                "      state: APPLIED_WITH_EVIDENCE",
+                "      body: private amend trail",
+                f"      resolved_path_local_only: {skill_dir / 'SKILL.md'}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    code = main(["profile", str(profile_path), "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["guidance"]["verdict"] == "PASS"
+    assert payload["guidance"]["sources"][0]["state"] == "DISCOVERED"
+    assert payload["guidance"]["sources"][0]["ref"] == "skill:mio"
+    assert str(tmp_path) not in json.dumps(payload["guidance"])
+    public_sources = payload["instruction_sources"]["sources"]
+    assert "state" not in public_sources[0]
+    assert "body" not in public_sources[0]
+    assert "resolved_path_local_only" not in public_sources[0]
+    assert "private amend trail" not in json.dumps(payload)
+
+
 def test_profile_name_emits_registry_instruction_sources(capsys) -> None:
     code = main(["profile", "chunkymonkey", "--format", "json"])
     captured = capsys.readouterr()

@@ -40,6 +40,17 @@ instruction_sources:
   ignored_by_default:
     - CLAUDE.md
   legacy_exception: Open CLAUDE.md only when the user explicitly requests historical comparison or migration.
+  sources:
+    - id: mio
+      kind: collaboration_lens
+      provider: codex_skill
+      ref: skill:mio
+      activation: substantive_judgment
+      requirement: required_when_active
+      scope: user
+      owner: user
+      sensitivity: personal
+      egress_policy: metadata_only
 notes: >
   Controller-first ChunkyMonkey profile. Moth owns shared tooling state such as
   dirty worktree, CodeGraph, complexity, and evidence path discovery, including
