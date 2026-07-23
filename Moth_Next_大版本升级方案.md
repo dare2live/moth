@@ -1398,6 +1398,10 @@ executor contract 的遥测才能把上下文判为 `READY`；
 - CodeGraph 已从本机观测到的 `1.2.0` 更新至官方最新稳定版 `1.5.0`，既有
   `status`、`affected`、`explore` 和 Moth 归一化合同重跑通过；该数字同样只是
   观测证据，后续更新仍以能力和 JSON 输出合同为准；
+- 新任务前向验收发现独立 Codex CLI `0.142.4` 无法承载当前默认模型，已按官方
+  stable 更新至 `0.145.0`；修复后新任务只通过 `$moth` 即完成 Mio→架构师加载、
+  receipt rerun、ProjectModel v2 与 CodeGraph/Omen 合同核验，仍诚实返回
+  `SELF_ATTESTED` 而非 `READY`；
 - `hotspot --top 10` 与 `changes --top 10` 均能对 Moth 仓库输出紧凑 JSON，
   且运行前后未产生仓库文件；
 - 首个适配面限定为 `hotspot`、`changes`、`diff`，记录观察到的版本和归一化状态，
@@ -1582,6 +1586,20 @@ executor contract 的遥测才能把上下文判为 `READY`；
 用户说“更新 Moth 相关工具和 Skill”或同义表达时，由 Moth 单入口进入维护流程：
 从官方上游盘点和更新，记录观察版本，重跑能力/输出契约探针、全量测试、插件校验与
 新任务前向验收；不得因为旧的精确版本常量阻断契约兼容的新版本。
+
+### 阶段八实施进度（2026-07-23）
+
+- `docs/compatibility-matrix.yaml` 是上游角色、观测版本、更新意图、所需能力与运行时
+  探针的统一配置；任何 `version_constraint` 均为空，数字只作本轮证据；
+- Omen 通过 Homebrew stable 核验为 4.25.0，CodeGraph 从 1.2.0 更新至 1.5.0，
+  Codex CLI 从 0.142.4 更新至 0.145.0；每次更新后均重跑实际能力和输出合同；
+- Moth 包元数据与模块版本已对齐为 1.0.0，已生成新的本地 marketplace cachebuster
+  候选；Rule 10 提交后再激活并做全新任务验收；wheel 已核验包含所有
+  Architecture、Change Safety、Guidance Application policy 与 Schema；
+- 全新只读 Codex 任务只调用 `$moth` 即完成 Guidance 加载与工具检查；receipt helper
+  同时支持文件与 stdin/stdout 流，严格只读 sandbox 不再依赖 `/tmp` 写权限；
+- 回滚规则保留上一观测版本/插件缓存；若新版本能力探针失败则恢复上一运行时并保持
+  兼容性失败，不能通过削弱合同或设永久版本天花板来“修绿”。
 
 ---
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,28 @@ def _load_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("inspection JSON must be an object")
     return payload
+
+
+def _load_object_input(value: str) -> dict[str, Any]:
+    if value == "-":
+        try:
+            payload = json.load(sys.stdin)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("inspection JSON is unreadable") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("inspection JSON must be an object")
+        return payload
+    return _load_object(Path(value))
+
+
+def _write_receipts(value: str, receipts: list[dict[str, Any]]) -> None:
+    rendered = json.dumps(receipts, indent=2, sort_keys=True) + "\n"
+    if value == "-":
+        sys.stdout.write(rendered)
+        return
+    output = Path(value)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered, encoding="utf-8")
 
 
 def build_receipts(
@@ -95,8 +118,16 @@ def build_receipts(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--inspection", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--inspection",
+        required=True,
+        help="Inspection JSON path, or - for stdin",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Receipt JSON path, or - for stdout",
+    )
     parser.add_argument(
         "--loaded-source",
         action="append",
@@ -105,16 +136,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        inspection = _load_object(args.inspection)
+        inspection = _load_object_input(args.inspection)
         receipts = build_receipts(
             inspection,
             loaded_sources=args.loaded_source,
         )
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
-            json.dumps(receipts, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        _write_receipts(args.output, receipts)
     except (OSError, UnicodeError, ValueError) as exc:
         parser.error(str(exc))
     return 0

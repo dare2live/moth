@@ -10,6 +10,21 @@ policy:
     - 升级 moth 相关工具和 skill
 
 components:
+  codex-cli:
+    role: plugin_host_and_fresh_task_forward_test
+    observed_version: 0.145.0
+    version_constraint: null
+    required_capabilities:
+      - plugin_add
+      - plugin_list
+      - ephemeral_exec
+      - read_only_exec
+      - skill_catalog
+    compatibility_probe:
+      - codex --version
+      - codex plugin list
+      - codex exec --ephemeral --sandbox read-only
+    authority: fresh task can load the installed Moth Skill and complete its receipt rerun
   codegraph:
     role: structural_index_and_impact_evidence
     observed_version: 1.5.0
@@ -68,6 +83,7 @@ components:
   moth-plugin:
     role: single_user_facing_entry
     observed_version: 1.0.0+codex.20260723113302
+    candidate_version: 1.0.0+codex.20260723115614
     version_constraint: null
     required_capabilities:
       - inspect_json

@@ -32,8 +32,10 @@ moth inspect --repo <repo> --task-kind <kind> --plan-only \
   --format json --output <temporary-plan.json>
 ```
 
-Use `mktemp -d` for temporary artifacts. If the installed `moth` command is
-unavailable while working in the Moth source repository, use
+Use `mktemp -d` for temporary artifacts when the sandbox permits writes. In a
+strict read-only sandbox, keep the plan and receipts in memory and use the
+helper's `--inspection - --output -` stdin/stdout transport. If the installed
+`moth` command is unavailable while working in the Moth source repository, use
 `PYTHONPATH=<moth-repo>/src python3 -m moth.cli` for that checkout.
 
 Do not continue when the inspection status is `FAIL`; diagnose the reported
@@ -80,6 +82,10 @@ python3 <this-skill-dir>/scripts/make_activation_receipts.py \
   --loaded-source <first-id> \
   --loaded-source <next-id>
 ```
+
+For strict read-only execution, pipe the plan JSON to `--inspection -` and
+capture `--output -`; pass the captured receipt JSON to Moth through a
+read-only process-substitution path. Do not fall back to repository files.
 
 Then rerun the same Moth inspection with:
 
