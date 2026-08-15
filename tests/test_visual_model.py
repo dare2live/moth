@@ -130,6 +130,10 @@ def test_architecture_separates_observed_from_undeclared_intent() -> None:
         "omitted": {"entities": 0, "relations": 0},
     }
     assert model["architecture"]["drift"] == []
+    assert model["architecture"]["summary"] == {
+        "state": "NOT_DECLARED",
+        "counts": {"CONFORMANT": 0, "VIOLATION": 0, "UNVERIFIABLE": 0},
+    }
 
 
 def test_home_actions_are_bounded_and_each_traces_to_evidence() -> None:
@@ -172,6 +176,19 @@ def test_clean_input_does_not_invent_priority_or_avoid_actions() -> None:
     assert set(model["status"]["evidence_ids"]) <= set(model["evidence"])
 
 
+def test_duplicate_snapshot_and_coverage_warning_is_shown_once() -> None:
+    model = build_visual_model(inspection_fixture())
+
+    matches = [
+        finding
+        for finding in model["findings"].values()
+        if finding["why"] == "python runtime coverage partial"
+    ]
+
+    assert len(matches) == 1
+    assert matches[0]["title"] == "检查覆盖仍不完整"
+
+
 def test_missing_code_payloads_do_not_claim_code_layer_availability() -> None:
     inspection = {
         "status": "UNKNOWN",
@@ -199,6 +216,43 @@ def test_visual_document_is_deterministic_and_has_three_viewpoint_lenses() -> No
         "system",
         "risk",
     ]
+    for viewpoint in first["navigation"]["viewpoints"]:
+        assert len(viewpoint["finding_ids"]) == len(set(viewpoint["finding_ids"]))
+        assert all(
+            viewpoint["id"] in first["findings"][finding_id]["viewpoint_ids"]
+            for finding_id in viewpoint["finding_ids"]
+        )
+
+
+def test_technologies_and_project_documents_use_learning_layers() -> None:
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model["modules"] = [
+        {
+            "id": "technology:duckdb",
+            "kind": "technology",
+            "name": "DuckDB",
+            "subtype": "data",
+            "evidence_ids": ["manifest:pyproject.toml"],
+        }
+    ]
+    project_model["evidence"].append(
+        {
+            "id": "profile:overview",
+            "kind": "project_document",
+            "locator": "docs/overview.md",
+            "sha256": "sha256:" + "b" * 64,
+        }
+    )
+
+    model = build_visual_model(inspection)
+    architecture = next(layer for layer in model["layers"] if layer["id"] == "architecture")
+    stack = next(layer for layer in model["layers"] if layer["id"] == "stack")
+    evidence = next(layer for layer in model["layers"] if layer["id"] == "evidence")
+
+    assert "technology:duckdb" not in architecture["entity_ids"]
+    assert "technology:duckdb" in stack["entity_ids"]
+    assert "document:profile:overview" in evidence["entity_ids"]
 
 
 def test_visual_document_bounds_architecture_refs_for_large_projects() -> None:

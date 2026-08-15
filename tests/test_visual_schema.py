@@ -34,6 +34,17 @@ def test_visual_document_matches_public_schema() -> None:
     assert validate_visual_model(build_visual_model(inspection_fixture())) == []
 
 
+def test_visual_document_v1_keeps_new_projection_fields_optional() -> None:
+    model = build_visual_model(inspection_fixture())
+    for viewpoint in model["navigation"]["viewpoints"]:
+        viewpoint.pop("entity_ids", None)
+        viewpoint.pop("relation_ids", None)
+        viewpoint.pop("finding_ids", None)
+    model["architecture"].pop("summary", None)
+
+    assert validate_visual_document_schema(model) == []
+
+
 def test_visual_semantic_validator_rejects_dangling_references() -> None:
     model = build_visual_model(inspection_fixture())
     model["home"]["priority_finding_ids"].append("finding:missing")

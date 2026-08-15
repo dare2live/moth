@@ -207,7 +207,9 @@ def _build_entities(
         "applications": [],
         "runtimes": [],
         "modules": [],
+        "technologies": [],
         "flows": [],
+        "documents": [],
         "code": [],
         "tools": [],
     }
@@ -235,6 +237,8 @@ def _build_entities(
             groups["runtimes"].append(entity_id)
         elif kind == "application":
             groups["applications"].append(entity_id)
+        elif kind == "technology":
+            groups["technologies"].append(entity_id)
         else:
             groups["modules"].append(entity_id)
     project = _mapping(project_model.get("project"))
@@ -250,6 +254,26 @@ def _build_entities(
             attributes={"version": project.get("version")},
         )
         groups["project"].append(project_id)
+
+    for raw in _list(project_model.get("evidence")):
+        item = _mapping(raw)
+        if item.get("kind") != "project_document":
+            continue
+        evidence_id = str(item.get("id") or "").strip()
+        locator = str(item.get("locator") or "").strip()
+        if not evidence_id or evidence_id not in evidence or not locator:
+            continue
+        document_id = f"document:{evidence_id}"
+        entities[document_id] = _entity(
+            document_id,
+            kind="project_document",
+            name=locator.rsplit("/", 1)[-1],
+            summary=f"项目文档：{locator}",
+            status="OBSERVED",
+            evidence_ids=[evidence_id],
+            attributes={"locator": locator},
+        )
+        groups["documents"].append(document_id)
 
     runtime_ids: set[str] = set()
     for raw in _list(project_model.get("runtimes")):
@@ -317,7 +341,10 @@ def _build_entities(
             status="OBSERVED",
             evidence_ids=_strings(module.get("evidence_ids")),
         )
-        groups["modules"].append(module_id)
+        if module.get("kind") == "technology":
+            groups["technologies"].append(module_id)
+        else:
+            groups["modules"].append(module_id)
 
     for raw in _list(project_model.get("relations")):
         item = _mapping(raw)
@@ -565,8 +592,11 @@ def _build_findings(
     evidence: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     findings: dict[str, dict[str, Any]] = {}
+    seen_messages: set[str] = set()
 
     def add_message(message: str, *, issue: bool) -> None:
+        if message in seen_messages:
+            return
         prefix = "issue" if issue else "warning"
         finding_id = _stable_id(prefix, message)
         evidence_id = _add_inspection_evidence(
@@ -592,6 +622,7 @@ def _build_findings(
             layer_ids=["overview", "evidence"],
             viewpoint_ids=["product", "system", "risk"],
         )
+        seen_messages.add(message)
 
     for message in _strings(snapshot.get("issues")):
         add_message(message, issue=True)
@@ -691,9 +722,9 @@ def _build_findings(
 
     coverage = _mapping(project_model.get("coverage"))
     for message in _strings(coverage.get("warnings")):
-        finding_id = _stable_id("coverage", message)
-        if finding_id in findings:
+        if message in seen_messages:
             continue
+        finding_id = _stable_id("coverage", message)
         evidence_id = _add_inspection_evidence(
             evidence,
             f"inspection:{finding_id}",
@@ -713,6 +744,7 @@ def _build_findings(
             layer_ids=["overview", "evidence"],
             viewpoint_ids=["product", "system", "risk"],
         )
+        seen_messages.add(message)
     change_safety = _mapping(inspection.get("change_safety"))
     change_verdict = str(change_safety.get("verdict") or "")
     if change_verdict in {"CAUTION", "NO_GO"}:
@@ -840,10 +872,10 @@ def _build_layers(
     entity_map = {
         "overview": groups["project"],
         "architecture": groups["applications"] + groups["modules"],
-        "stack": groups["runtimes"],
+        "stack": groups["runtimes"] + groups["technologies"],
         "flows": groups["flows"],
         "code": groups["code"],
-        "evidence": groups["tools"],
+        "evidence": groups["tools"] + groups["documents"],
     }
     layers = []
     for definition in policy["layers"]:
@@ -948,7 +980,8 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
                     + _strings(current_architecture.get("state_machine_ids"))
                 )
                 if entity_id in entities
-                and entities[entity_id].get("kind") not in {"project", "runtime"}
+                and entities[entity_id].get("kind")
+                not in {"project", "runtime", "technology"}
             }
         )
     else:
@@ -1044,6 +1077,55 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
         findings=findings,
         evidence=evidence,
     )
+    layer_by_id = {str(layer["id"]): layer for layer in layers}
+    viewpoints = []
+    for item in policy["viewpoints"]:
+        viewpoint_id = str(item["id"])
+        layer_ids = _strings(item["layer_ids"])
+        viewpoint_layers = [
+            layer_by_id[layer_id] for layer_id in layer_ids if layer_id in layer_by_id
+        ]
+        viewpoints.append(
+            {
+                "id": viewpoint_id,
+                "label": str(item["label"]),
+                "layer_ids": layer_ids,
+                "entity_ids": sorted(
+                    {
+                        entity_id
+                        for layer in viewpoint_layers
+                        for entity_id in _strings(layer.get("entity_ids"))
+                    }
+                ),
+                "relation_ids": sorted(
+                    {
+                        relation_id
+                        for layer in viewpoint_layers
+                        for relation_id in _strings(layer.get("relation_ids"))
+                    }
+                ),
+                "finding_ids": sorted(
+                    finding_id
+                    for finding_id, finding in findings.items()
+                    if viewpoint_id in _strings(finding.get("viewpoint_ids"))
+                ),
+            }
+        )
+    drift_counts = {"CONFORMANT": 0, "VIOLATION": 0, "UNVERIFIABLE": 0}
+    for item in architecture_drift:
+        status_name = str(_mapping(item).get("status") or "UNVERIFIABLE")
+        if status_name in drift_counts:
+            drift_counts[status_name] += 1
+    if drift_counts["VIOLATION"]:
+        architecture_state = "VIOLATION"
+    elif drift_counts["UNVERIFIABLE"]:
+        architecture_state = "UNVERIFIABLE"
+    elif to_be_is_declared and architecture_drift:
+        architecture_state = "CONFORMANT"
+    elif not to_be_is_declared:
+        architecture_state = "NOT_DECLARED"
+    else:
+        architecture_state = "PARTIAL"
     return {
         "schema_version": "moth.visual-document.v1",
         "source": {
@@ -1085,14 +1167,7 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
                 {"id": str(item["id"]), "label": str(item["label"])}
                 for item in policy["layers"]
             ],
-            "viewpoints": [
-                {
-                    "id": str(item["id"]),
-                    "label": str(item["label"]),
-                    "layer_ids": _strings(item["layer_ids"]),
-                }
-                for item in policy["viewpoints"]
-            ],
+            "viewpoints": viewpoints,
         },
         "entities": dict(sorted(entities.items())),
         "relations": dict(sorted(relations.items())),
@@ -1127,6 +1202,10 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
                 "omitted": {"entities": 0, "relations": 0},
             },
             "drift": architecture_drift,
+            "summary": {
+                "state": architecture_state,
+                "counts": drift_counts,
+            },
         },
     }
 
@@ -1214,6 +1293,26 @@ def validate_visual_model(model: dict[str, Any]) -> list[str]:
             for identifier in _strings(layer.get(field)):
                 if identifier not in known:
                     errors.append(f"layer {layer_id} {field} reference missing: {identifier}")
+
+    for viewpoint in viewpoints:
+        if not isinstance(viewpoint, dict):
+            continue
+        viewpoint_id = str(viewpoint.get("id"))
+        for layer_id in _strings(viewpoint.get("layer_ids")):
+            if layer_id not in layer_ids:
+                errors.append(
+                    f"viewpoint {viewpoint_id} layer reference missing: {layer_id}"
+                )
+        for field, known in (
+            ("entity_ids", entities),
+            ("relation_ids", relations),
+            ("finding_ids", findings),
+        ):
+            for identifier in _strings(viewpoint.get(field)):
+                if identifier not in known:
+                    errors.append(
+                        f"viewpoint {viewpoint_id} {field} reference missing: {identifier}"
+                    )
 
     architecture = _mapping(model.get("architecture"))
     for state_name in ("as_is", "to_be"):

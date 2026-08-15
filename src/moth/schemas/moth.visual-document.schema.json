@@ -100,7 +100,10 @@
             "properties": {
               "id": {"type": "string", "minLength": 1},
               "label": {"type": "string", "minLength": 1},
-              "layer_ids": {"$ref": "#/$defs/stringList"}
+              "layer_ids": {"$ref": "#/$defs/stringList"},
+              "entity_ids": {"$ref": "#/$defs/stringList"},
+              "relation_ids": {"$ref": "#/$defs/stringList"},
+              "finding_ids": {"$ref": "#/$defs/stringList"}
             }
           }
         }
@@ -137,7 +140,34 @@
       "properties": {
         "as_is": {"$ref": "#/$defs/architectureState"},
         "to_be": {"$ref": "#/$defs/architectureState"},
-        "drift": {"type": "array"}
+        "drift": {"type": "array"},
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "counts"],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "CONFORMANT",
+                "VIOLATION",
+                "UNVERIFIABLE",
+                "NOT_DECLARED",
+                "PARTIAL"
+              ]
+            },
+            "counts": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["CONFORMANT", "VIOLATION", "UNVERIFIABLE"],
+              "properties": {
+                "CONFORMANT": {"type": "integer", "minimum": 0},
+                "VIOLATION": {"type": "integer", "minimum": 0},
+                "UNVERIFIABLE": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
       }
     }
   },

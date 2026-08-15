@@ -1,4 +1,6 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from socketserver import ThreadingMixIn
 from threading import BoundedSemaphore
 from wsgiref.util import setup_testing_defaults
 
@@ -7,6 +9,7 @@ import os
 import subprocess
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 
 from moth.profiles.loader import RepoProfile
 from moth.report import build_report
@@ -14,7 +17,8 @@ from moth.cli import main
 from moth.inspection import sanitize_public_text
 from moth.web_app import create_web_application
 from moth.web_config import load_web_console_config
-from moth.web_server import serve_web_console
+from moth.web_registry import register_web_project
+from moth.web_server import BoundedWSGIServer, serve_web_console
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +28,27 @@ def _write_config(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return path
+
+
+def test_web_project_view_v1_keeps_profile_state_optional() -> None:
+    schema = json.loads(
+        (
+            PROJECT_ROOT
+            / "src"
+            / "moth"
+            / "schemas"
+            / "moth.web-project-view.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    payload = {
+        "schema_version": "moth.web-project-view.v1",
+        "project": {"id": "repo", "name": "Repo", "description": ""},
+        "execution_policy": "safe_view",
+        "inspection": {},
+        "visual_document": {},
+    }
+
+    assert list(Draft202012Validator(schema).iter_errors(payload)) == []
 
 
 def _call_wsgi(
@@ -91,7 +116,63 @@ def test_web_config_resolves_only_declared_projects(tmp_path) -> None:
         "id": "project-a",
         "name": "Project A",
         "description": "Primary fixture",
+        "profile_state": "ephemeral",
     }
+
+
+def test_web_config_uses_valid_local_profile_and_marks_invalid_profile(tmp_path) -> None:
+    configured = tmp_path / "configured"
+    invalid = tmp_path / "invalid"
+    configured_profile = configured / ".moth" / "profile.yaml"
+    invalid_profile = invalid / ".moth" / "profile.yaml"
+    configured_profile.parent.mkdir(parents=True)
+    invalid_profile.parent.mkdir(parents=True)
+    configured_profile.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: configured",
+                "repo_path: .",
+                "codegraph_root: .",
+                "instruction_sources:",
+                "  sources: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    invalid_profile.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: invalid",
+                "repo_path: .",
+                "codegraph_root: .",
+                "evidence_paths:",
+                "  escaped: /tmp/outside.md",
+                "instruction_sources:",
+                "  sources: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_path = _write_config(
+        tmp_path / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [
+                {"id": "configured", "name": "Configured", "repo": "configured"},
+                {"id": "invalid", "name": "Invalid", "repo": "invalid"},
+            ],
+        },
+    )
+
+    config = load_web_console_config(config_path)
+
+    assert config.projects[0].profile.kind == "profile"
+    assert config.projects[0].profile_state == "configured"
+    assert config.projects[1].profile.kind == "ephemeral_profile"
+    assert config.projects[1].profile_state == "partial"
 
 
 def test_web_config_rejects_duplicate_ids_and_non_loopback_bind(tmp_path) -> None:
@@ -245,15 +326,209 @@ def test_projects_api_lists_public_metadata_without_filesystem_paths(tmp_path) -
     assert headers["Cache-Control"] == "no-store"
     assert payload == {
         "schema_version": "moth.web-project-list.v1",
+        "capabilities": {"project_selection": False},
         "projects": [
             {
                 "id": "repo",
                 "name": "Repository",
                 "description": "Read-only target",
+                "profile_state": "ephemeral",
             }
         ],
     }
     assert str(tmp_path) not in body.decode()
+
+
+def test_project_selection_api_registers_and_reloads_allowlist(tmp_path) -> None:
+    repo_a = tmp_path / "project-a"
+    repo_b = tmp_path / "project-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    config_path = _write_config(
+        tmp_path / ".moth" / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [{"id": "project-a", "name": "Project A", "repo": "../project-a"}],
+        },
+    )
+
+    def register_selected():
+        result = register_web_project(repo_b, config_path=config_path)
+        return load_web_console_config(config_path), result["project_id"], result["created"]
+
+    app = create_web_application(
+        load_web_console_config(config_path),
+        token="secret",
+        config_loader=lambda: load_web_console_config(config_path),
+        project_registration=register_selected,
+        project_view_builder=lambda project: {
+            "schema_version": "moth.web-project-view.v1",
+            "project": project.public_metadata(),
+            "inspection": {"status": "WARN"},
+            "visual_document": {"schema_version": "moth.visual-document.v1"},
+        },
+    )
+
+    initial = json.loads(_call_wsgi(app, "/api/v1/projects", token="secret")[2])
+    assert initial["capabilities"] == {"project_selection": True}
+
+    status, _, body = _call_wsgi(
+        app,
+        "/api/v1/projects/select",
+        method="POST",
+        token="secret",
+    )
+    registration = json.loads(body)
+    assert status == "200 OK"
+    assert registration["selected"] is True
+    assert registration["created"] is True
+    assert registration["project"]["name"] == "project-b"
+    assert str(tmp_path) not in body.decode()
+
+    project_id = registration["project"]["id"]
+    projects = json.loads(_call_wsgi(app, "/api/v1/projects", token="secret")[2])
+    assert [project["id"] for project in projects["projects"]] == ["project-a", project_id]
+    inspected = _call_wsgi(
+        app,
+        "/api/v1/inspections",
+        method="POST",
+        token="secret",
+        payload={"project_id": project_id},
+    )
+    assert inspected[0] == "200 OK"
+
+
+def test_projects_and_inspections_reload_external_registry_changes(tmp_path) -> None:
+    repo_a = tmp_path / "project-a"
+    repo_b = tmp_path / "project-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    config_path = _write_config(
+        tmp_path / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [{"id": "project-a", "name": "Project A", "repo": "project-a"}],
+        },
+    )
+    app = create_web_application(
+        load_web_console_config(config_path),
+        token="secret",
+        config_loader=lambda: load_web_console_config(config_path),
+        project_view_builder=lambda project: {
+            "schema_version": "moth.web-project-view.v1",
+            "project": project.public_metadata(),
+            "inspection": {"status": "WARN"},
+            "visual_document": {"schema_version": "moth.visual-document.v1"},
+        },
+    )
+
+    registration = register_web_project(repo_b, config_path=config_path)
+    projects = json.loads(_call_wsgi(app, "/api/v1/projects", token="secret")[2])
+    inspected = _call_wsgi(
+        app,
+        "/api/v1/inspections",
+        method="POST",
+        token="secret",
+        payload={"project_id": registration["project_id"]},
+    )
+
+    assert len(projects["projects"]) == 2
+    assert inspected[0] == "200 OK"
+
+
+def test_concurrent_project_registration_keeps_every_project(tmp_path) -> None:
+    config_path = tmp_path / "web.yaml"
+    repos = [tmp_path / f"project-{index}" for index in range(4)]
+    for repo in repos:
+        repo.mkdir()
+
+    with ThreadPoolExecutor(max_workers=len(repos)) as executor:
+        results = list(
+            executor.map(
+                lambda repo: register_web_project(repo, config_path=config_path),
+                repos,
+            )
+        )
+
+    config = load_web_console_config(config_path)
+    assert len(config.projects) == len(repos)
+    assert {project.id for project in config.projects} == {
+        result["project_id"] for result in results
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, "401 Unauthorized"),
+        ({"token": "secret", "host": "localhost:8765"}, "403 Forbidden"),
+        (
+            {"token": "secret", "origin": "http://attacker.invalid"},
+            "403 Forbidden",
+        ),
+        ({"token": "secret", "payload": {"path": "/tmp"}}, "422 Unprocessable Entity"),
+    ],
+)
+def test_project_selection_route_enforces_request_boundary(tmp_path, kwargs, expected) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = _write_config(
+        tmp_path / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [{"id": "repo", "name": "Repo", "repo": "repo"}],
+        },
+    )
+    app = create_web_application(
+        load_web_console_config(config_path),
+        token="secret",
+        project_registration=lambda: None,
+    )
+
+    status, _, _ = _call_wsgi(
+        app,
+        "/api/v1/projects/select",
+        method="POST",
+        **kwargs,
+    )
+
+    assert status == expected
+
+
+def test_project_selection_api_cancels_without_mutating_registry(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = _write_config(
+        tmp_path / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [{"id": "repo", "name": "Repo", "repo": "repo"}],
+        },
+    )
+    app = create_web_application(
+        load_web_console_config(config_path),
+        token="secret",
+        project_registration=lambda: None,
+    )
+
+    status, _, body = _call_wsgi(
+        app,
+        "/api/v1/projects/select",
+        method="POST",
+        token="secret",
+    )
+
+    assert status == "200 OK"
+    assert json.loads(body) == {
+        "schema_version": "moth.web-project-registration.v1",
+        "selected": False,
+        "created": False,
+        "project": None,
+    }
 
 
 def test_api_requires_token_exact_host_and_same_origin(tmp_path) -> None:
@@ -390,6 +665,9 @@ def test_web_assets_are_exact_packaged_routes_and_use_safe_dom(tmp_path) -> None
     assert b"textContent" in script
     assert b"innerHTML" not in script
     assert b"Authorization" in script
+    assert b"add-project-button" in index
+    assert b"/api/v1/projects/select" in script
+    assert b"drift?.state" not in script
     assert traversal_status == "404 Not Found"
 
 
@@ -469,6 +747,61 @@ def test_macos_browser_launcher_keeps_capability_out_of_process_args(
     assert command == ["/usr/bin/osascript"]
     assert "super-secret" not in " ".join(command)
     assert capability_url in kwargs["input"]
+
+
+def test_macos_project_selector_returns_only_existing_directory(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from moth.browser_launcher import select_project_directory
+
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout=f"SELECTED\n{tmp_path}\n")
+
+    monkeypatch.setattr("moth.browser_launcher.sys.platform", "darwin")
+    monkeypatch.setattr("moth.browser_launcher.subprocess.run", fake_run)
+
+    assert select_project_directory() == tmp_path.resolve()
+    command, kwargs = calls[0]
+    assert command == ["/usr/bin/osascript"]
+    assert str(tmp_path) not in " ".join(command)
+    assert "choose folder" in kwargs["input"]
+    assert kwargs["stdout"] is subprocess.PIPE
+
+
+def test_macos_project_selector_distinguishes_cancel_from_failure(monkeypatch) -> None:
+    from moth.browser_launcher import ProjectSelectionError, select_project_directory
+
+    monkeypatch.setattr("moth.browser_launcher.sys.platform", "darwin")
+    monkeypatch.setattr(
+        "moth.browser_launcher.subprocess.run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="CANCELLED\n"),
+    )
+    assert select_project_directory() is None
+
+    monkeypatch.setattr(
+        "moth.browser_launcher.subprocess.run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 1, stdout=""),
+    )
+    with pytest.raises(ProjectSelectionError, match="failed"):
+        select_project_directory()
+
+
+def test_web_server_uses_threaded_request_handling() -> None:
+    assert issubclass(BoundedWSGIServer, ThreadingMixIn)
+
+
+def test_project_selection_capability_is_hidden_without_native_adapter(
+    monkeypatch,
+) -> None:
+    from moth.browser_launcher import project_selection_available
+
+    monkeypatch.setattr("moth.browser_launcher.sys.platform", "linux")
+
+    assert project_selection_available() is False
 
 
 def test_browser_launcher_fails_soft_without_a_safe_platform_adapter(

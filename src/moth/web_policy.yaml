@@ -17,3 +17,10 @@ browser_launch:
       transport: stdin_applescript
       command: [/usr/bin/osascript]
       timeout_seconds: 5
+project_selection:
+  max_path_bytes: 4096
+  platforms:
+    darwin:
+      transport: stdin_applescript
+      command: [/usr/bin/osascript]
+      timeout_seconds: 300

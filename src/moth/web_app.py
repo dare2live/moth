@@ -1,4 +1,4 @@
-"""Authenticated read-only HTTP contract for the local Moth Web Console."""
+"""Authenticated local HTTP contract for the Moth Web Console."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from moth.web_config import WebConsoleConfig, WebProject, load_web_policy
 
 StartResponse = Callable[[str, list[tuple[str, str]]], Any]
 ProjectViewBuilder = Callable[[WebProject], dict[str, Any]]
+ProjectRegistration = Callable[[], tuple[WebConsoleConfig, str, bool] | None]
+ConfigLoader = Callable[[], WebConsoleConfig]
 
 
 def _json_bytes(payload: Any) -> bytes:
@@ -50,6 +52,8 @@ class WebConsoleApplication:
         token: str,
         project_view_builder: ProjectViewBuilder,
         inspection_gate: BoundedSemaphore,
+        project_registration: ProjectRegistration | None,
+        config_loader: ConfigLoader | None,
     ) -> None:
         if not token:
             raise ValueError("web console token cannot be empty")
@@ -57,11 +61,22 @@ class WebConsoleApplication:
         self._token = token
         self._project_view_builder = project_view_builder
         self._inspection_gate = inspection_gate
+        self._project_registration = project_registration
+        self._config_loader = config_loader
         self._authority = f"{config.host}:{config.port}"
         self._origin = f"http://{self._authority}"
         api_policy = load_web_policy()["api"]
         self._max_body = int(api_policy["max_body_bytes"])
         self._max_authorization = int(api_policy["max_authorization_bytes"])
+
+    def _fresh_config(self) -> WebConsoleConfig:
+        if self._config_loader is None:
+            return self._config
+        config = self._config_loader()
+        if config.host != self._config.host or config.port != self._config.port:
+            raise ValueError("running Web Console authority cannot change")
+        self._config = config
+        return config
 
     def _respond_json(
         self,
@@ -225,14 +240,96 @@ class WebConsoleApplication:
                     "METHOD_NOT_ALLOWED",
                     "Use GET for the project registry.",
                 )
+            try:
+                config = self._fresh_config()
+            except Exception:
+                return self._error(
+                    start_response,
+                    "500 Internal Server Error",
+                    "PROJECT_REGISTRY_FAILED",
+                    "The project registry could not be loaded.",
+                    retryable=True,
+                )
             return self._respond_json(
                 start_response,
                 "200 OK",
                 {
                     "schema_version": "moth.web-project-list.v1",
+                    "capabilities": {
+                        "project_selection": self._project_registration is not None,
+                    },
                     "projects": [
-                        project.public_metadata() for project in self._config.projects
+                        project.public_metadata() for project in config.projects
                     ],
+                },
+            )
+        if path == "/api/v1/projects/select":
+            if method != "POST":
+                return self._error(
+                    start_response,
+                    "405 Method Not Allowed",
+                    "METHOD_NOT_ALLOWED",
+                    "Use POST to select a project directory.",
+                )
+            if self._project_registration is None:
+                return self._error(
+                    start_response,
+                    "501 Not Implemented",
+                    "PROJECT_SELECTION_UNAVAILABLE",
+                    "Native project selection is unavailable on this platform.",
+                )
+            try:
+                body_size = int(environ.get("CONTENT_LENGTH") or "0")
+            except ValueError:
+                body_size = -1
+            if body_size != 0:
+                return self._error(
+                    start_response,
+                    "422 Unprocessable Entity",
+                    "INVALID_REQUEST",
+                    "Project selection does not accept browser-supplied data.",
+                )
+            try:
+                registration = self._project_registration()
+            except Exception:
+                return self._error(
+                    start_response,
+                    "500 Internal Server Error",
+                    "PROJECT_REGISTRATION_FAILED",
+                    "The selected project could not be registered.",
+                    retryable=True,
+                )
+            if registration is None:
+                return self._respond_json(
+                    start_response,
+                    "200 OK",
+                    {
+                        "schema_version": "moth.web-project-registration.v1",
+                        "selected": False,
+                        "created": False,
+                        "project": None,
+                    },
+                )
+            config, project_id, created = registration
+            try:
+                project = config.project(project_id)
+            except KeyError:
+                return self._error(
+                    start_response,
+                    "500 Internal Server Error",
+                    "PROJECT_REGISTRATION_FAILED",
+                    "The registered project was not available after reload.",
+                    retryable=True,
+                )
+            self._config = config
+            return self._respond_json(
+                start_response,
+                "200 OK",
+                {
+                    "schema_version": "moth.web-project-registration.v1",
+                    "selected": True,
+                    "created": created,
+                    "project": project.public_metadata(),
                 },
             )
         if path == "/api/v1/inspections":
@@ -248,13 +345,21 @@ class WebConsoleApplication:
                 return self._error(start_response, *error)
             assert payload is not None
             try:
-                project = self._config.project(payload["project_id"])
+                project = self._fresh_config().project(payload["project_id"])
             except KeyError:
                 return self._error(
                     start_response,
                     "404 Not Found",
                     "PROJECT_NOT_FOUND",
                     "Configured project was not found.",
+                )
+            except Exception:
+                return self._error(
+                    start_response,
+                    "500 Internal Server Error",
+                    "PROJECT_REGISTRY_FAILED",
+                    "The project registry could not be loaded.",
+                    retryable=True,
                 )
             if not self._inspection_gate.acquire(blocking=False):
                 return self._error(
@@ -291,6 +396,8 @@ def create_web_application(
     token: str,
     project_view_builder: ProjectViewBuilder | None = None,
     inspection_gate: BoundedSemaphore | None = None,
+    project_registration: ProjectRegistration | None = None,
+    config_loader: ConfigLoader | None = None,
 ) -> WebConsoleApplication:
     if project_view_builder is None:
         from moth.web_service import build_project_view
@@ -301,4 +408,6 @@ def create_web_application(
         token=token,
         project_view_builder=project_view_builder,
         inspection_gate=inspection_gate or BoundedSemaphore(1),
+        project_registration=project_registration,
+        config_loader=config_loader,
     )

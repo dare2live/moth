@@ -15,10 +15,13 @@
     </a>
     <div class="project-control">
       <label for="project-select">项目</label>
-      <select id="project-select" disabled><option>正在读取项目…</option></select>
+      <div class="project-picker">
+        <select id="project-select" disabled><option>正在读取项目…</option></select>
+        <button id="add-project-button" class="quiet" type="button" hidden><span aria-hidden="true">+</span> 添加项目</button>
+      </div>
     </div>
     <div class="command-actions">
-      <button id="refresh-button" type="button" disabled>刷新检查</button>
+      <button id="refresh-button" type="button" disabled>刷新</button>
       <button id="json-button" class="quiet" type="button" disabled>API JSON</button>
     </div>
   </header>
@@ -30,29 +33,29 @@
   </section>
 
   <div class="app-shell">
-    <aside class="rail" aria-label="检查视图">
-      <button class="rail-home active" id="home-button" type="button">总览</button>
+    <aside class="rail" aria-label="项目浏览">
+      <button class="rail-home active" id="home-button" type="button">项目全景</button>
       <div class="rail-group">
-        <h2>视角</h2>
-        <nav id="viewpoint-nav"></nav>
+        <div class="rail-mode" role="tablist" aria-label="浏览模式">
+          <button id="map-mode-button" type="button" role="tab" aria-selected="true">项目地图</button>
+          <button id="view-mode-button" type="button" role="tab" aria-selected="false">工作视角</button>
+        </div>
+        <nav id="layer-nav" aria-label="项目地图"></nav>
+        <nav id="viewpoint-nav" aria-label="工作视角" hidden></nav>
       </div>
-      <div class="rail-group">
-        <h2>图层</h2>
-        <nav id="layer-nav"></nav>
-      </div>
-      <p class="safe-note"><strong>Safe view</strong><br>禁用项目 assertion、外部 complexity 命令和工具 adapter。</p>
+      <p class="safe-note"><strong>Safe view</strong><span>每次选择都会重新检查</span></p>
     </aside>
 
     <main id="main-content" tabindex="-1">
       <section id="welcome-state" class="state-panel">
-        <p class="eyebrow">LOCAL EVIDENCE CONSOLE</p>
-        <h1>选择一个项目，查看刚刚生成的真实证据。</h1>
-        <p>项目列表来自本机配置。每次刷新都会重新扫描，不使用历史缓存。</p>
+        <p class="context-label">本地项目工作台</p>
+        <h1>选择项目，查看它如何组成与运行。</h1>
+        <p>每次打开、切换或刷新都会重新扫描当前代码与项目证据。</p>
       </section>
       <section id="content-view" hidden>
         <div class="page-heading">
           <div>
-            <p id="section-kicker" class="eyebrow">OVERVIEW</p>
+            <p id="section-kicker" class="context-label">项目全景</p>
             <h1 id="section-title"></h1>
             <p id="section-summary"></p>
           </div>
@@ -61,7 +64,7 @@
         <div id="primary-content"></div>
       </section>
       <section id="error-state" class="state-panel error-panel" hidden role="alert">
-        <p class="eyebrow">REQUEST FAILED</p>
+        <p class="context-label">检查失败</p>
         <h1>这次检查没有完成。</h1>
         <p id="error-message"></p>
         <button id="retry-button" type="button">重试</button>
@@ -70,15 +73,14 @@
   </div>
 
   <dialog id="evidence-dialog" aria-labelledby="evidence-title">
-    <form method="dialog"><button class="dialog-close" aria-label="关闭证据">关闭</button></form>
-    <p class="eyebrow">EVIDENCE</p>
-    <h2 id="evidence-title">证据</h2>
+    <form method="dialog"><button class="dialog-close" aria-label="关闭">关闭</button></form>
+    <h2 id="evidence-title">详情</h2>
     <div id="evidence-body"></div>
   </dialog>
 
   <div id="loading-mask" class="loading-mask" hidden aria-live="assertive">
-    <span class="spinner" aria-hidden="true"></span>
-    <span>正在生成 fresh safe-view inspection…</span>
+    <span class="loading-line" aria-hidden="true"></span>
+    <span id="loading-message">正在检查项目…</span>
   </div>
   <script src="/assets/app.js" defer></script>
 </body>
