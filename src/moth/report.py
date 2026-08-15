@@ -19,7 +19,7 @@ from moth.checks.startup import check_profile
 from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
 from moth.project_model import build_project_model
 from moth.profiles.loader import RepoProfile
-from moth.profiles.loader import discover_profiles
+from moth.profiles.loader import discover_profiles, discover_profiles_with_failures
 from moth.profiles.loader import list_profiles
 from moth.schema import SNAPSHOT_SCHEMA_VERSION
 from moth.schema import utc_now_iso
@@ -74,7 +74,24 @@ def _warnings_from_complexity(complexity: dict[str, Any]) -> list[str]:
     high = int(severity_counts.get("high") or 0)
     medium = int(severity_counts.get("medium") or 0)
     info = int(severity_counts.get("info") or 0)
-    return [f"complexity hotspots: {finding_count} findings ({high} high, {medium} medium, {info} info)"]
+    warnings = [
+        f"complexity hotspots: {finding_count} findings ({high} high, {medium} medium, {info} info)"
+    ]
+    if diff.get("status") == "baseline_unavailable":
+        warnings.append(
+            "complexity baseline unavailable: current findings are unclassified, not regressions"
+        )
+    return warnings
+
+
+def _complexity_governance_state(diff: dict[str, Any]) -> str:
+    if diff.get("status") != "compared":
+        return "UNBASELINED"
+    if int(diff.get("new_high_count") or 0):
+        return "CAUTION"
+    if int(diff.get("new_count") or 0):
+        return "REVIEW"
+    return "STABLE"
 
 
 def _complexity_excludes_warning(profile: RepoProfile) -> list[str]:
@@ -139,6 +156,8 @@ def build_report(
         "status": baseline_status,
     }
     complexity["diff"] = complexity_diff
+    complexity["scan_health"] = complexity.get("verdict", "UNKNOWN")
+    complexity["governance_state"] = _complexity_governance_state(complexity_diff)
 
     assertions = run_assertion_packs(
         effective_profile.assertion_packs,
@@ -153,7 +172,10 @@ def build_report(
         else run_coupling_orphans(effective_profile.repo_path)
     )
     guidance = resolve_guidance_sources(effective_profile.instruction_sources)
-    project_model = build_project_model(effective_profile.repo_path)
+    project_model = build_project_model(
+        effective_profile.repo_path,
+        evidence_paths=effective_profile.evidence_paths,
+    )
     tool_evidence = collect_tool_evidence(effective_profile)
     # 可选功能: profile 配置了 import_cycles 才跑, 未配置不惩罚 (SKIP)。
     if effective_profile.import_cycles:
@@ -359,14 +381,19 @@ def _count_status(items: list[dict[str, Any]]) -> tuple[int, int]:
 
 def build_profiles_report(workspace_root: str | Path | None = None) -> dict[str, Any]:
     registry_profiles = [_serialize_profile(profile) for profile in list_profiles()]
-    workspace_profiles = (
-        [_serialize_profile(profile) for profile in discover_profiles(workspace_root)]
+    discovered, discovery_failures = (
+        discover_profiles_with_failures(workspace_root)
         if workspace_root is not None
-        else []
+        else ([], [])
     )
+    workspace_profiles = [_serialize_profile(profile) for profile in discovered]
 
     issues: list[str] = []
     warnings: list[str] = []
+    # 加载不了的 profile 必须**点名报出**: 跳过而不说 = 少扫几个仓却仍显示全绿,
+    # 比整条命令崩掉更危险(崩至少还是个信号)。
+    for failure in discovery_failures:
+        issues.append(f"profile unreadable: {failure['path']} — {failure['error']}")
     if not registry_profiles:
         warnings.append("no bundled profiles found")
     if workspace_root is not None and not workspace_profiles:

@@ -2,13 +2,18 @@ kind: template
 name: example
 repo_path: /absolute/path/to/repo
 codegraph_root: .
-# 缺省 = moth 内建分析器 (moth.analyzers.complexity, 进程内); 要用外部脚本再解开:
-# complexity_command:
-#   - python
-#   - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
-#   - /absolute/path/to/repo
-#   - --format
-#   - markdown
+# 复杂度分析器 = moth 内建 (moth.analyzers.complexity, 进程内)。
+#
+# ⚠️ `complexity_command`(指定外部可执行文件)**只有 moth 自带的 bundled profile 能用**
+#    —— 即放在 moth 仓 `profiles/` 目录下的那些。repo-local 的
+#    `<repo>/.moth/profile.yaml` 声明它会被 loader 拒绝:
+#      ValueError: non-bundled profiles cannot select external complexity executables
+#    这是安全边界而非限制: 被审计的仓若能指定外部程序, 就能劫持审计器去执行任意命令。
+#
+#    2026-08-14 实测代价: 本模板此前把 complexity_command 写成"解开即可用", 于是
+#    3 个仓(cakechallenge/gaokao/gaozhong)照着写, 它们的 profile **全部加载失败**;
+#    叠加当时 discover_profiles 一份坏就抛异常, `moth workspace` 在真实工作区整条命令崩溃。
+#    模板教了一件 loader 禁止的事 = 契约自相矛盾, 代价由使用者承担。
 # 内建模式的目录名排除 (显式 complexity_command 时忽略, doctor 会提示):
 # complexity_excludes:
 #   - .venv_scrape

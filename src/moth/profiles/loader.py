@@ -322,10 +322,22 @@ def list_profiles() -> list[RepoProfile]:
     return [profile for profile in profiles if profile.kind == "profile"]
 
 
-def discover_profiles(search_root: str | Path) -> list[RepoProfile]:
+def discover_profiles_with_failures(
+    search_root: str | Path,
+) -> tuple[list[RepoProfile], list[dict[str, str]]]:
+    """扫工作区里的 repo-local profile, **一份坏的不得带走整批**。
+
+    2026-08-14 实测: 原实现在列表推导里逐个 ``load_profile``, 任何一份不合法都会抛出,
+    于是 ``moth workspace`` / ``moth profiles`` 在真实工作区**整条命令崩溃** ——
+    8 份 profile 里 3 份声明了 ``complexity_command``(repo-local 禁用, 见下), 全局即挂。
+    这与"扫到的候选解析不了"同属发现式扫描: 坏件应被**报告**, 不是让整批消失。
+
+    跳过必须可见: 失败以结构化条目返回, 由 workspace/profiles 报告渲染出来 ——
+    静默跳过就变成"少查几份还全绿", 比直接崩更危险。
+    """
     root = Path(search_root).resolve()
     if not root.exists():
-        return []
+        return [], []
     profile_paths = sorted(
         {
             path.resolve()
@@ -333,8 +345,28 @@ def discover_profiles(search_root: str | Path) -> list[RepoProfile]:
             if path.parent.name == ".moth"
         }
     )
-    profiles = [load_profile(path) for path in profile_paths]
-    return [profile for profile in profiles if profile.kind == "profile"]
+    profiles: list[RepoProfile] = []
+    failures: list[dict[str, str]] = []
+    for path in profile_paths:
+        try:
+            profile = load_profile(path)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            failures.append(
+                {
+                    "path": str(path),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+        if profile.kind == "profile":
+            profiles.append(profile)
+    return profiles, failures
+
+
+def discover_profiles(search_root: str | Path) -> list[RepoProfile]:
+    """只要能加载的 profile。失败清单见 :func:`discover_profiles_with_failures`。"""
+
+    return discover_profiles_with_failures(search_root)[0]
 
 
 def match_profile(repo_path: str | Path) -> RepoProfile | None:

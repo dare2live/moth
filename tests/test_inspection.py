@@ -83,6 +83,7 @@ def test_inspection_public_snapshot_strips_paths_and_raw_streams(monkeypatch, tm
         "build_snapshot",
         lambda _profile: {
             "schema_version": 1,
+            "generated_at": "2026-07-24T12:34:56Z",
             "status": "PASS",
             "issues": [],
             "warnings": [],
@@ -128,6 +129,7 @@ def test_inspection_public_snapshot_strips_paths_and_raw_streams(monkeypatch, tm
     assert "private@example.test" not in serialized
     assert '"stdout"' not in serialized
     assert '"command"' not in serialized
+    assert result["snapshot"]["generated_at"] == "2026-07-24T12:34:56Z"
 
 
 def test_minimal_failure_snapshot_also_redacts_private_issue_text(

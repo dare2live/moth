@@ -10,7 +10,7 @@ from moth.profiles.loader import (
     load_profile,
     match_profile,
 )
-from moth.profiles.loader import discover_profiles
+from moth.profiles.loader import discover_profiles, discover_profiles_with_failures
 from moth.profiles.scaffold import build_profile_scaffold
 from moth.profiles.scaffold import default_profile_path
 from moth.profiles.scaffold import write_profile_scaffold
@@ -497,3 +497,36 @@ def test_repo_local_profile_rejects_import_cycle_symlink_escape(tmp_path) -> Non
         match=r"import_cycles\.scan_paths\[0\] escapes the profile repository",
     ):
         load_profile(profile_path)
+
+
+def test_discovery_reports_unreadable_profiles_instead_of_crashing(tmp_path) -> None:
+    """一份坏 profile 不得带走整批, 但也**不得被静默跳过**。
+
+    2026-08-14 实测: 原实现在列表推导里逐个 load_profile, 8 份里 3 份声明了
+    repo-local 禁用的 complexity_command, `moth workspace` 在真实工作区整条命令崩溃。
+    改为跳过+报告后, 反向风险是"少扫几个仓却仍全绿" —— 故本例同时锁两侧。
+    """
+    good = tmp_path / "good" / ".moth"
+    bad = tmp_path / "bad" / ".moth"
+    good.mkdir(parents=True)
+    bad.mkdir(parents=True)
+    (good / "profile.yaml").write_text(
+        "kind: profile\nname: good\nrepo_path: .\ncodegraph_root: .\n", encoding="utf-8"
+    )
+    # repo-local profile 声明外部 complexity 可执行文件 = loader 明令拒绝(安全边界)
+    (bad / "profile.yaml").write_text(
+        "kind: profile\nname: bad\nrepo_path: .\ncodegraph_root: .\n"
+        "complexity_command:\n  - python\n  - /tmp/whatever.py\n",
+        encoding="utf-8",
+    )
+
+    profiles, failures = discover_profiles_with_failures(tmp_path)
+
+    assert [p.name for p in profiles] == ["good"], "好的那份必须照常加载"
+    assert len(failures) == 1, "坏的那份必须被记下来, 不能静默消失"
+    assert "bad" in failures[0]["path"]
+    assert "complexity" in failures[0]["error"]
+
+    # 旧签名保持兼容(既有调用方与测试不受影响)
+    assert [p.name for p in discover_profiles(tmp_path)] == ["good"]
+

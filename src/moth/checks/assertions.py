@@ -49,7 +49,7 @@ from typing import Any
 
 import yaml
 
-SHELL_TIMEOUT_S = 60  # hard ceiling so a wedged probe cannot hang the audit
+SHELL_TIMEOUT_S = 180  # foundation F6 org pointer hash recompute can exceed 60s
 
 _REQUIRED_KEYS = ("id", "type", "expect")
 _KNOWN_TYPES = ("duckdb_sql", "shell", "file_size", "file_exists")

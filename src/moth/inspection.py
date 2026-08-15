@@ -60,6 +60,7 @@ def _portable_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     assertions = snapshot.get("assertions") or {}
     public_snapshot = {
         "schema_version": snapshot.get("schema_version"),
+        "generated_at": snapshot.get("generated_at"),
         "execution_policy": snapshot.get("execution_policy", "full"),
         "status": snapshot.get("status"),
         "issues": [sanitize_public_text(item) for item in snapshot.get("issues") or []],

@@ -131,7 +131,7 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         report_module,
         "build_project_model",
-        lambda _repo_path: {
+        lambda _repo_path, **_kwargs: {
             "schema_version": "moth.project-model.v1",
             "verdict": "PASS",
             "project": {"id": "project:moth", "name": "moth"},
@@ -151,6 +151,9 @@ def test_build_report_surfaces_tooling_evidence(monkeypatch, tmp_path) -> None:
     assert payload["codegraph"]["state"] == "NOT_INITIALIZED"
     assert payload["complexity"]["summary"]["finding_count"] == 1
     assert payload["complexity"]["baseline"]["status"] == "not_configured"
+    assert payload["complexity"]["scan_health"] == "PASS"
+    assert payload["complexity"]["governance_state"] == "UNBASELINED"
+    assert any("baseline unavailable" in warning for warning in payload["warnings"])
     assert payload["profile"]["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
     assert "body" not in payload["profile"]["instruction_sources"]["sources"][0]
     assert "resolved_path_local_only" not in payload["profile"]["instruction_sources"]["sources"][0]
@@ -303,6 +306,7 @@ def test_build_report_warns_on_new_complexity_high_with_loaded_baseline(monkeypa
     assert payload["complexity"]["baseline"]["status"] == "loaded"
     assert payload["complexity"]["diff"]["status"] == "compared"
     assert payload["complexity"]["diff"]["new_high_count"] == 1
+    assert payload["complexity"]["governance_state"] == "CAUTION"
     assert any("complexity new high findings" in warning for warning in payload["warnings"])
     assert payload["issues"] == []
 
@@ -364,6 +368,7 @@ def test_build_report_does_not_warn_on_unchanged_complexity_with_loaded_baseline
     assert payload["status"] == "PASS"
     assert payload["complexity"]["diff"]["status"] == "compared"
     assert payload["complexity"]["diff"]["new_high_count"] == 0
+    assert payload["complexity"]["governance_state"] == "STABLE"
     assert payload["warnings"] == []
     assert payload["issues"] == []
 
@@ -666,7 +671,10 @@ def test_build_profiles_report_summarizes_registry(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(report_module, "list_profiles", lambda: [profile_ok])
-    monkeypatch.setattr(report_module, "discover_profiles", lambda _root: [profile_warn])
+    # build_profiles_report 现在走带失败清单的入口(一份坏 profile 不得带走整批, 且必须点名)
+    monkeypatch.setattr(
+        report_module, "discover_profiles_with_failures", lambda _root: ([profile_warn], [])
+    )
     monkeypatch.setattr(report_module, "check_profile", lambda profile: [] if profile.name == "ok" else ["missing complexity command"])
 
     payload = report_module.build_profiles_report("/tmp/workspace")
