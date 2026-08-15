@@ -63,14 +63,24 @@
       "required": [
         "detector_id",
         "package_globs",
+        "python_dependency_globs",
+        "python_entry_globs",
+        "static_entry_globs",
+        "static_root_names",
         "capabilities",
-        "framework_dependencies"
+        "framework_dependencies",
+        "python_framework_dependencies"
       ],
       "properties": {
         "detector_id": {"$ref": "#/$defs/nonEmpty"},
         "package_globs": {"$ref": "#/$defs/stringList"},
+        "python_dependency_globs": {"$ref": "#/$defs/stringList"},
+        "python_entry_globs": {"$ref": "#/$defs/stringList"},
+        "static_entry_globs": {"$ref": "#/$defs/stringList"},
+        "static_root_names": {"$ref": "#/$defs/stringList"},
         "capabilities": {"$ref": "#/$defs/capabilityDefinitions"},
-        "framework_dependencies": {"$ref": "#/$defs/capabilityMap"}
+        "framework_dependencies": {"$ref": "#/$defs/capabilityMap"},
+        "python_framework_dependencies": {"$ref": "#/$defs/capabilityMap"}
       }
     },
     "mini_program": {

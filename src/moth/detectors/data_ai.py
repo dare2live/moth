@@ -123,21 +123,33 @@ def detect_data_ai_project(repo_path: str | Path) -> dict[str, Any]:
             relative,
             max_bytes=int(limits["max_manifest_bytes"]),
         )
+        # 扫到的候选 notebook 解析不了 = **关于这次扫描**的事实, 不是关于项目架构的缺陷 ——
+        # 与本文件上方 python manifest 分支同一原则(「only consumes manifests whose
+        # dependency declaration is trustworthy」: 信不过的候选跳过, 不升级为 issue)。
+        # 2026-08-14 实测: gaokao 的 23 条 issue **全部(100%)**来自 data/external/ 下五个
+        # vendored 第三方数据集(GAOKAO-Bench / GAOKAO-Eval / ...), 于是整个项目模型被别人的
+        # 畸形 notebook 判成 verdict=FAIL。同一个文件对同一类事件给两种严重级, 是不一致而非设计。
+        # 「畸形 notebook 算不算项目缺陷」是**目标仓的业务规则**, 按 AGENTS.md 第一条不属于 Moth;
+        # Moth 只如实报覆盖不全, 由目标仓自己决定要不要因此判红。
         if raw is None:
-            issues.append(f"notebook manifest invalid: {relative.as_posix()} is {failure}")
+            warnings.append(
+                f"notebook coverage partial: {relative.as_posix()} is {failure}"
+            )
             continue
         try:
             notebook = json.loads(raw)
         except (UnicodeError, json.JSONDecodeError):
-            issues.append(f"notebook manifest invalid: {relative.as_posix()} is malformed")
+            warnings.append(
+                f"notebook coverage partial: {relative.as_posix()} is malformed"
+            )
             continue
         if (
             not isinstance(notebook, dict)
             or not isinstance(notebook.get("nbformat"), int)
             or not isinstance(notebook.get("cells"), list)
         ):
-            issues.append(
-                f"notebook manifest invalid: {relative.as_posix()} lacks notebook structure"
+            warnings.append(
+                f"notebook coverage partial: {relative.as_posix()} lacks notebook structure"
             )
             continue
         item = manifest_evidence(relative, raw)

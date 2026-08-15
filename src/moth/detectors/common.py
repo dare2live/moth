@@ -6,7 +6,7 @@ import fnmatch
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 import yaml
@@ -26,6 +26,7 @@ def load_platform_rules() -> dict[str, Any]:
         raise ValueError("platform detector rules are invalid")
     for section_name, dependency_field in (
         ("web", "framework_dependencies"),
+        ("web", "python_framework_dependencies"),
         ("data_ai", "dependency_capabilities"),
     ):
         section = data[section_name]
@@ -71,47 +72,114 @@ def bounded_manifest_paths(
     *,
     limits: dict[str, Any],
 ) -> tuple[list[Path], bool]:
-    """Return matching files without following symlinks or scanning without bounds."""
+    """Resolve configured manifest patterns without walking unrelated file trees."""
 
-    root = Path(repo_path)
+    root = Path(repo_path).resolve()
     max_depth = int(limits["max_depth"])
     max_entries = int(limits["max_entries"])
     excluded = set(limits["excluded_directories"])
-    patterns = tuple(globs)
-    matches: list[Path] = []
+    patterns = tuple(str(pattern) for pattern in globs)
+    matches: dict[str, Path] = {}
     scanned = 0
     incomplete = False
 
-    def onerror(_error: OSError) -> None:
-        nonlocal incomplete
-        incomplete = True
+    def consume() -> bool:
+        nonlocal scanned, incomplete
+        scanned += 1
+        if scanned > max_entries:
+            incomplete = True
+            return False
+        return True
 
-    for current, directories, files in os.walk(root, topdown=True, onerror=onerror, followlinks=False):
-        current_path = Path(current)
+    def directory_names(current: Path, pattern: str) -> list[str]:
+        nonlocal incomplete
+        names: list[str] = []
         try:
-            depth = len(current_path.relative_to(root).parts)
-        except ValueError:
-            continue
-        directories[:] = sorted(
-            name
-            for name in directories
-            if name not in excluded and not (current_path / name).is_symlink()
-        )
-        if depth >= max_depth:
-            directories[:] = []
-        for name in sorted(files):
-            scanned += 1
-            if scanned > max_entries:
-                incomplete = True
-                return matches, incomplete
-            path = current_path / name
-            if path.is_symlink():
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if not consume():
+                        break
+                    if (
+                        entry.name in excluded
+                        or not fnmatch.fnmatch(entry.name, pattern)
+                        or not entry.is_dir(follow_symlinks=False)
+                    ):
+                        continue
+                    names.append(entry.name)
+        except OSError:
+            incomplete = True
+        return sorted(names)
+
+    def file_names(current: Path, pattern: str) -> list[str]:
+        nonlocal incomplete
+        names: list[str] = []
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if not consume():
+                        break
+                    if not fnmatch.fnmatch(entry.name, pattern):
+                        continue
+                    if entry.is_file(follow_symlinks=False):
+                        names.append(entry.name)
+        except OSError:
+            incomplete = True
+        return sorted(names)
+
+    def walk_pattern(current: Path, parts: tuple[str, ...], relative: Path) -> None:
+        nonlocal incomplete
+        if incomplete or not parts:
+            return
+        part = parts[0]
+        final = len(parts) == 1
+        if part == "**":
+            walk_pattern(current, parts[1:], relative)
+            if len(relative.parts) >= max_depth:
+                return
+            for name in directory_names(current, "*"):
+                walk_pattern(current / name, parts, relative / name)
+            return
+        has_magic = any(character in part for character in "*?[")
+        if final:
+            names = file_names(current, part) if has_magic else []
+            if not has_magic:
+                if not consume():
+                    return
+                candidate = current / part
+                if not candidate.is_symlink() and candidate.is_file():
+                    names = [part]
+            for name in names:
+                candidate = current / name
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                locator = (relative / name).as_posix()
+                matches[locator] = Path(locator)
+            return
+
+        if len(relative.parts) >= max_depth:
+            incomplete = True
+            return
+        names = directory_names(current, part) if has_magic else [part]
+        for name in names:
+            if not has_magic and not consume():
+                return
+            directory = current / name
+            if directory.is_symlink() or not directory.is_dir() or name in excluded:
                 continue
-            relative = path.relative_to(root)
-            locator = relative.as_posix()
-            if any(fnmatch.fnmatch(locator, pattern) for pattern in patterns):
-                matches.append(relative)
-    return matches, incomplete
+            walk_pattern(directory, parts[1:], relative / name)
+
+    for pattern in patterns:
+        path = PurePosixPath(pattern)
+        if path.is_absolute() or ".." in path.parts or not path.parts:
+            incomplete = True
+            continue
+        if len(path.parts) - 1 > max_depth:
+            incomplete = True
+            continue
+        walk_pattern(root, tuple(path.parts), Path())
+        if scanned > max_entries:
+            break
+    return [matches[key] for key in sorted(matches)], incomplete
 
 
 def read_manifest(

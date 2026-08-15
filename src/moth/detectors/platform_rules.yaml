@@ -59,6 +59,21 @@ web:
     - "*/package.json"
     - "*/*/package.json"
     - "*/*/*/package.json"
+  python_dependency_globs:
+    - "**/requirements*.txt"
+  python_entry_globs:
+    - "**/main.py"
+    - "**/app.py"
+    - "**/manage.py"
+  static_entry_globs:
+    - "**/index.html"
+  static_root_names:
+    - "."
+    - desktop
+    - frontend
+    - web
+    - public
+    - www
   capabilities:
     web:
       name: Web
@@ -95,6 +110,19 @@ web:
       id: fastify
       name: Fastify
       capability: api
+  python_framework_dependencies:
+    fastapi:
+      id: fastapi
+      name: FastAPI
+      capability: api
+    flask:
+      id: flask
+      name: Flask
+      capability: api
+    django:
+      id: django
+      name: Django
+      capability: web
 
 mini_program:
   detector_id: mini-program-project
@@ -119,7 +147,7 @@ data_ai:
   detector_id: data-ai-project
   notebook_capability: data
   notebook_globs:
-    - "*.ipynb"
+    - "**/*.ipynb"
   python_manifest_globs:
     - pyproject.toml
     - "*/pyproject.toml"

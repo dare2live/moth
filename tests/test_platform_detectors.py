@@ -6,7 +6,8 @@ from jsonschema import Draft202012Validator
 
 import moth.detectors.data_ai as data_ai_module
 import moth.detectors.web as web_module
-from moth.detectors.common import load_platform_rules
+from moth.detectors.common import bounded_manifest_paths, load_platform_rules
+from moth.detectors.python_project import detect_python_project
 from moth.project_model import build_project_model
 
 
@@ -85,6 +86,66 @@ def test_package_manifest_dependency_detects_web_framework_from_source_evidence(
             "evidence_ids": ["manifest:package.json"],
         }
     ]
+
+
+def test_python_api_and_static_frontend_are_detected_without_node_manifest(
+    tmp_path,
+) -> None:
+    backend = tmp_path / "backend"
+    frontend = tmp_path / "frontend"
+    backend.mkdir()
+    frontend.mkdir()
+    (backend / "requirements.txt").write_text(
+        "fastapi==0.116.0\nuvicorn>=0.35\n",
+        encoding="utf-8",
+    )
+    (backend / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n",
+        encoding="utf-8",
+    )
+    (frontend / "index.html").write_text(
+        "<!doctype html><title>Frontend</title>",
+        encoding="utf-8",
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert {item["id"] for item in model["applications"]} == {
+        "python-web:backend",
+        "static-web:frontend",
+    }
+    assert {item["id"] for item in model["runtimes"]} == {"browser", "python"}
+    assert {item["id"] for item in model["modules"]} >= {
+        "framework:fastapi",
+        "platform:api",
+        "platform:web",
+    }
+    assert {item["id"] for item in model["relations"]} == {
+        "uses-runtime:python-web:backend:python",
+        "uses-runtime:static-web:frontend:browser",
+    }
+
+
+def test_desktop_static_frontend_is_detected(tmp_path) -> None:
+    desktop = tmp_path / "desktop"
+    desktop.mkdir()
+    (desktop / "index.html").write_text(
+        "<!doctype html><title>Desktop</title>",
+        encoding="utf-8",
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert {
+        "id": "static-web:desktop",
+        "name": "desktop",
+        "kind": "application",
+        "subtype": "static_web_application",
+        "entrypoint": "desktop/index.html",
+        "runtime_id": "browser",
+        "evidence_ids": ["manifest:desktop/index.html"],
+    } in model["applications"]
+    assert any(runtime["id"] == "browser" for runtime in model["runtimes"])
 
 
 def test_declared_python_dependencies_detect_data_and_ai_capabilities(tmp_path) -> None:
@@ -355,6 +416,52 @@ def test_incompatible_duplicate_application_identity_fails_closed(tmp_path) -> N
     ]
 
 
+def test_unrelated_bulk_files_preserve_matches_but_report_partial_scan(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    rules = deepcopy(load_platform_rules())
+    rules["limits"]["max_entries"] = 8
+    rules["web"]["package_globs"] = ["*/package.json"]
+    monkeypatch.setattr(web_module, "load_platform_rules", lambda: rules)
+    bulk = tmp_path / "a-bulk"
+    app = tmp_path / "z-app"
+    bulk.mkdir()
+    app.mkdir()
+    for index in range(50):
+        (bulk / f"data-{index}.json").write_text("{}", encoding="utf-8")
+    (app / "package.json").write_text(
+        '{"name":"nested-ui","dependencies":{"react-dom":"^19"}}',
+        encoding="utf-8",
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert any(item["id"] == "web:nested-ui" for item in model["applications"])
+    assert any(
+        "web project coverage partial" in warning
+        for warning in model["coverage"]["warnings"]
+    )
+
+
+def test_recursive_manifest_scan_counts_every_enumerated_entry(tmp_path) -> None:
+    for index in range(20):
+        (tmp_path / f"data-{index}.json").write_text("{}", encoding="utf-8")
+
+    paths, incomplete = bounded_manifest_paths(
+        tmp_path,
+        ["**/package.json"],
+        limits={
+            "max_depth": 4,
+            "max_entries": 5,
+            "excluded_directories": [],
+        },
+    )
+
+    assert paths == []
+    assert incomplete is True
+
+
 def test_other_miniprogram_manifest_pair_uses_configured_platform_adapter(
     tmp_path,
 ) -> None:
@@ -428,3 +535,109 @@ def test_data_capability_identity_is_fully_configured(monkeypatch, tmp_path) -> 
         and module["subtype"] == "retrieval"
         for module in result["modules"]
     )
+
+
+def test_python_project_detected_from_requirements_without_pyproject(tmp_path) -> None:
+    """次级清单足以证明"是 Python 项目", 但**不足以证明它叫什么**。
+
+    2026-08-14 扩此路径的实测依据: 5 个注册项目里 4 个是实打实的 Python 代码库
+    (lifehack 10808 / chunkymonkey 507 / gaozhong 325 / gaokao 87 个 .py), 却因为
+    检测器只认 pyproject.toml 而全部 NOT_DETECTED —— 那不是证据不足, 是检测面没覆盖到。
+    """
+    (tmp_path / "requirements.txt").write_text(
+        "# comment\n\nfastapi==0.116.0\n-r other.txt\n--index-url https://x\nuvicorn>=0.35\n-e .\n",
+        encoding="utf-8",
+    )
+    result = detect_python_project(tmp_path)
+
+    assert result["detector"]["state"] == "DETECTED"
+    # 注释 / 空行 / pip 选项 / 递归引用 / 可编辑安装全部剔除, 只留真依赖
+    assert result["runtimes"][0]["dependencies"] == ["fastapi==0.116.0", "uvicorn>=0.35"]
+    # **身份必须留空** —— 拿目录名冒充项目名就是发明证据, 违背 truth-source-first
+    assert result["project"] is None
+    assert any("project identity" in w for w in result["warnings"])
+    assert any("requires-python" in w for w in result["warnings"])
+
+
+def test_python_project_detected_from_suffixed_requirements_file(tmp_path) -> None:
+    """`requirements-ci.txt` 这类带后缀的写法是本仓生态实际用法, 只认裸名会漏掉。
+
+    (chunkymonkey 根目录就只有 requirements-ci.txt, 没有 requirements.txt。)
+    """
+    (tmp_path / "requirements-ci.txt").write_text("duckdb>=1.0\n", encoding="utf-8")
+    result = detect_python_project(tmp_path)
+
+    assert result["detector"]["state"] == "DETECTED"
+    assert result["runtimes"][0]["dependencies"] == ["duckdb>=1.0"]
+
+
+def test_python_project_without_any_manifest_stays_not_detected(tmp_path) -> None:
+    """没有任何清单就必须 NOT_DETECTED —— 光有 .py 文件不构成清单证据。
+
+    反向锁: 若哪天为了让验收矩阵好看而"看见 .py 就算数", 这条必红。
+    (lifehack 有 10808 个 .py 且根目录无清单, 它的 NOT_DETECTED 是**正确**的。)
+    """
+    (tmp_path / "app.py").write_text("print('x')\n", encoding="utf-8")
+    assert detect_python_project(tmp_path)["detector"]["state"] == "NOT_DETECTED"
+
+
+def test_pyproject_still_wins_over_fallback_manifests(tmp_path) -> None:
+    """两级证据同时存在时, 完整清单优先 —— 身份必须来自 pyproject。"""
+    (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "real-name"\nrequires-python = ">=3.11"\ndependencies = ["duckdb"]\n',
+        encoding="utf-8",
+    )
+    result = detect_python_project(tmp_path)
+
+    assert result["project"]["name"] == "real-name"
+    assert result["runtimes"][0]["dependencies"] == ["duckdb"]
+    assert result["warnings"] == []
+
+
+def test_unparseable_discovered_notebook_is_coverage_warning_not_project_issue(
+    tmp_path,
+) -> None:
+    """扫到的候选 notebook 解析不了 = 关于扫描的事实, 不是项目缺陷。
+
+    2026-08-14 实测: gaokao 的 23 条 issue **全部**来自 data/external/ 下五个 vendored
+    第三方数据集, 整个项目模型因此被别人的畸形 notebook 判成 verdict=FAIL。
+    同一个 data_ai 检测器对 python manifest 走的是"信不过就跳过"(warning), 对 notebook
+    却走 issue —— 同类事件两种严重级, 是不一致而非设计。
+    「畸形 notebook 算不算项目缺陷」是目标仓的业务规则, 按 Moth AGENTS.md 第一条不属于 Moth。
+    """
+    vendored = tmp_path / "data" / "external" / "third-party"
+    vendored.mkdir(parents=True)
+    (vendored / "broken.ipynb").write_text("{not json at all", encoding="utf-8")
+    (vendored / "no-structure.ipynb").write_text('{"foo": 1}', encoding="utf-8")
+
+    model = build_project_model(tmp_path)
+    coverage = model["coverage"]
+
+    assert coverage["issues"] == [], "第三方畸形 notebook 不得把项目模型判红"
+    assert model["verdict"] != "FAIL"
+    assert any("notebook coverage partial" in w for w in coverage["warnings"]), (
+        "降级不等于静默 —— 覆盖不全仍必须被看见"
+    )
+
+
+def test_repo_root_python_app_is_named_and_not_duplicated(tmp_path) -> None:
+    """仓根与子目录扫到同一 entrypoint 时只产一个应用, 且不得叫 "."。
+
+    2026-08-14 Web Console 实测发现: chunkymonkey 的「应用入口」里有两条都指向
+    backend/main.py, 其中一条标题就是一个句点 —— 因为 `Path(".").as_posix()` 返回 "."
+    而非空串, 是**真值**, 原来 `root.as_posix() or <repo dir name>` 的兜底永远不触发。
+    """
+    (tmp_path / "backend").mkdir()
+    (tmp_path / "backend" / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (tmp_path / "backend" / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8"
+    )
+
+    apps = build_project_model(tmp_path)["applications"]
+    entrypoints = [a.get("entrypoint") for a in apps]
+
+    assert len(entrypoints) == len(set(entrypoints)), f"同一 entrypoint 不得产出多个应用: {entrypoints}"
+    assert "." not in [a.get("name") for a in apps], "仓根应用必须有可读名字, 不能是一个句点"
+

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,32 @@ from jsonschema import Draft202012Validator
 from moth.architecture_model import build_architecture_model
 from moth.detectors.common import load_platform_rules
 from moth.detectors.registry import run_detectors
+
+
+_MAX_PROFILE_EVIDENCE_BYTES = 1_048_576
+
+
+def _repository_identity(repo_path: str | Path) -> tuple[dict[str, Any], dict[str, str]]:
+    repo = Path(repo_path).resolve()
+    name = repo.name or "repository"
+    slug = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-_") or "repository"
+    observed = f"repository-directory-name:{name}"
+    evidence_id = "repository:root"
+    return (
+        {
+            "id": f"repository:{slug}",
+            "name": name,
+            "version": None,
+            "description": None,
+            "evidence_ids": [evidence_id],
+        },
+        {
+            "id": evidence_id,
+            "kind": "repository_boundary",
+            "locator": ".",
+            "sha256": "sha256:" + hashlib.sha256(observed.encode("utf-8")).hexdigest(),
+        },
+    )
 
 
 def _merge_project(
@@ -107,7 +135,53 @@ def _merge_items(
     return [merged[item_id] for item_id in sorted(merged)]
 
 
-def build_project_model(repo_path: str | Path) -> dict[str, Any]:
+def _profile_evidence(
+    repo_path: str | Path,
+    evidence_paths: dict[str, Path] | None,
+) -> tuple[list[dict[str, str]], list[str]]:
+    repo = Path(repo_path).resolve()
+    evidence: list[dict[str, str]] = []
+    warnings: list[str] = []
+    for label, configured_path in sorted((evidence_paths or {}).items()):
+        path = Path(configured_path)
+        try:
+            resolved = path.resolve(strict=True)
+            relative = resolved.relative_to(repo)
+        except (OSError, ValueError):
+            warnings.append(f"profile evidence unavailable: {label}")
+            continue
+        if path.is_symlink() or not resolved.is_file():
+            continue
+        try:
+            with resolved.open("rb") as handle:
+                raw = handle.read(_MAX_PROFILE_EVIDENCE_BYTES + 1)
+        except OSError:
+            warnings.append(f"profile evidence unreadable: {label}")
+            continue
+        if len(raw) > _MAX_PROFILE_EVIDENCE_BYTES:
+            warnings.append(f"profile evidence exceeds size limit: {label}")
+            continue
+        slug = re.sub(r"[^a-z0-9_-]+", "-", str(label).lower()).strip("-_")
+        evidence.append(
+            {
+                "id": f"profile:{slug or hashlib.sha256(str(label).encode()).hexdigest()[:12]}",
+                "kind": (
+                    "project_document"
+                    if resolved.suffix.lower() in {".md", ".rst", ".txt"}
+                    else "project_evidence"
+                ),
+                "locator": relative.as_posix(),
+                "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+            }
+        )
+    return evidence, warnings
+
+
+def build_project_model(
+    repo_path: str | Path,
+    *,
+    evidence_paths: dict[str, Path] | None = None,
+) -> dict[str, Any]:
     detected = run_detectors(repo_path)
     issues = [issue for fragment in detected for issue in fragment["issues"]]
     warnings = [warning for fragment in detected for warning in fragment["warnings"]]
@@ -119,6 +193,9 @@ def build_project_model(repo_path: str | Path) -> dict[str, Any]:
     runtimes = _merge_items(detected, "runtimes", issues, warnings)
     modules = _merge_items(detected, "modules", issues, warnings)
     evidence = _merge_evidence(detected, issues)
+    declared_evidence, evidence_warnings = _profile_evidence(repo_path, evidence_paths)
+    evidence.extend(declared_evidence)
+    warnings.extend(evidence_warnings)
     platform_modules = [item for item in modules if item.get("kind") == "platform"]
     config = load_platform_rules()["composition"]["mixed"]
     collapsed_subtypes = set(config.get("collapse_subtypes") or [])
@@ -147,6 +224,9 @@ def build_project_model(repo_path: str | Path) -> dict[str, Any]:
         modules.append(mixed)
         modules.sort(key=lambda item: item["id"])
     project = _merge_project(detected, issues)
+    if project is None:
+        project, repository_evidence = _repository_identity(repo_path)
+        evidence.append(repository_evidence)
     architecture = build_architecture_model(
         repo_path,
         project=project,

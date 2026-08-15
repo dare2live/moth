@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 from moth.project_model import build_project_model
@@ -109,19 +110,28 @@ def test_project_model_is_canonical_across_repository_locations(tmp_path) -> Non
     assert str(tmp_path) not in repr(first)
 
 
-def test_unknown_repository_returns_warned_empty_model(tmp_path) -> None:
+def test_unknown_repository_uses_truthful_repository_identity(tmp_path) -> None:
     model = build_project_model(tmp_path)
 
     assert model["verdict"] == "WARN"
-    assert model["project"] is None
+    assert model["project"] == {
+        "id": f"repository:{tmp_path.name}",
+        "name": tmp_path.name,
+        "version": None,
+        "description": None,
+        "evidence_ids": ["repository:root"],
+    }
     assert model["applications"] == []
     assert model["runtimes"] == []
     assert model["modules"] == []
-    assert model["entities"] == []
+    assert [entity["id"] for entity in model["entities"]] == [
+        f"repository:{tmp_path.name}"
+    ]
     assert model["relations"] == []
     assert model["flows"] == []
     assert model["state_machines"] == []
-    assert model["evidence"] == []
+    assert model["evidence"][0]["id"] == "repository:root"
+    assert model["evidence"][0]["locator"] == "."
     assert all(
         detector["state"] == "NOT_DETECTED"
         for detector in model["coverage"]["detectors"]
@@ -130,6 +140,24 @@ def test_unknown_repository_returns_warned_empty_model(tmp_path) -> None:
     assert model["coverage"]["warnings"] == [
         "project coverage unavailable: no supported manifest detected"
     ]
+
+
+def test_project_model_includes_bounded_repo_local_profile_evidence(tmp_path) -> None:
+    overview = tmp_path / "docs" / "overview.md"
+    overview.parent.mkdir()
+    overview.write_text("# Project overview\n", encoding="utf-8")
+
+    model = build_project_model(
+        tmp_path,
+        evidence_paths={"project_overview": overview},
+    )
+
+    assert {
+        "id": "profile:project_overview",
+        "kind": "project_document",
+        "locator": "docs/overview.md",
+        "sha256": "sha256:" + hashlib.sha256(overview.read_bytes()).hexdigest(),
+    } in model["evidence"]
 
 
 def test_project_model_schema_declares_stage_one_contract() -> None:
