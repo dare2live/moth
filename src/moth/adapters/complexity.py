@@ -18,20 +18,40 @@ DEFAULT_IGNORED_PATH_PARTS = (".claude/worktrees/", "node_modules/", ".venv", ".
 BUILTIN_COMMAND_MARKER = "<builtin:moth.analyzers.complexity>"
 
 
-def _builtin_command(root: Path, excludes: Sequence[str]) -> list[str]:
+def _builtin_command(
+    root: Path,
+    excludes: Sequence[str],
+    *,
+    include_ignored: bool = False,
+) -> list[str]:
     command = [BUILTIN_COMMAND_MARKER, str(root), "--format", "json"]
     for item in excludes:
         command.extend(["--exclude", str(item)])
+    if include_ignored:
+        command.append("--include-ignored")
     return command
 
 
-def _run_builtin(root: str | Path, excludes: Sequence[str]) -> dict[str, Any]:
+def _run_builtin(
+    root: str | Path,
+    excludes: Sequence[str],
+    *,
+    include_ignored: bool = False,
+) -> dict[str, Any]:
     from moth.analyzers.complexity import run as run_builtin_analyzer
 
     root_path = Path(root)
-    command = _builtin_command(root_path, excludes)
+    command = _builtin_command(
+        root_path,
+        excludes,
+        include_ignored=include_ignored,
+    )
     try:
-        outcome = run_builtin_analyzer(root_path, excludes)
+        outcome = run_builtin_analyzer(
+            root_path,
+            excludes,
+            include_ignored=include_ignored,
+        )
     except Exception as exc:
         return {
             "command": command,
@@ -273,11 +293,16 @@ def run_analysis(
     command: Sequence[str] | None = None,
     *,
     excludes: Sequence[str] = (),
+    include_ignored: bool = False,
 ) -> dict[str, Any]:
     # command 为 None/空 = 内建模式: 进程内跑 vendored 分析器, root 即扫描根。
     # excludes 仅内建模式消费; 显式 command 自带 --exclude, 此参数被忽略。
     if not command:
-        return _run_builtin(root, excludes)
+        return _run_builtin(
+            root,
+            excludes,
+            include_ignored=include_ignored,
+        )
     normalized_command = _force_json_format(command)
     try:
         completed = run_safe_process(

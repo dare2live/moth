@@ -10,6 +10,10 @@ from pathlib import Path
 
 import yaml
 
+from moth import __version__
+from moth.adapters.complexity import build_complexity_diff_report
+from moth.adapters.complexity import load_complexity_baseline
+from moth.adapters.complexity import run_analysis as run_complexity_analysis
 from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
 from moth.guidance_policy import TASK_KINDS
 from moth.html_report import render_html_report
@@ -40,6 +44,12 @@ from moth.web_registry import default_web_config_path, register_web_project
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="moth", description="Cross-repo audit atlas")
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     inspect = sub.add_parser("inspect", help="One-call portable project and task preflight")
@@ -136,9 +146,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="内建复杂度热点扫描 (vendored complexity-optimizer analyzer, 进程内, schema-frozen)",
     )
     complexity_cmd.add_argument("root", nargs="?", default=".", help="Repository or directory to scan.")
+    complexity_cmd.add_argument(
+        "--repo",
+        help="Repository root; applies its Moth profile when available.",
+    )
+    complexity_cmd.add_argument("--profile", help="Explicit profile name or YAML path")
+    complexity_cmd.add_argument(
+        "--no-profile",
+        action="store_true",
+        help="Ignore a matching Moth profile and use only command-line options.",
+    )
     complexity_cmd.add_argument("--format", choices=["markdown", "json"], default="markdown")
     complexity_cmd.add_argument("--exclude", action="append", default=[], help="Additional directory name to exclude.")
     complexity_cmd.add_argument("--max-findings", type=int, default=80)
+    complexity_cmd.add_argument(
+        "--include-ignored",
+        action="store_true",
+        help="Include files ignored by Git.",
+    )
+    complexity_cmd.add_argument(
+        "--write-baseline",
+        metavar="PATH",
+        help="Write all current findings as a validated baseline JSON file.",
+    )
 
     coupling_cmd = sub.add_parser("coupling", help="Coupling/orphan-ref check: --impact <name> 看删前 fan-in, 或扫孤儿引用")
     coupling_cmd.add_argument("--repo", required=True, help="Repo path to inspect")
@@ -255,6 +285,22 @@ def _write_output(output_path: str | None, rendered: str) -> None:
     persist_optional_output(output_path, rendered)
 
 
+def _write_complexity_baseline(
+    path: str | Path,
+    findings: list[dict[str, object]],
+) -> Path:
+    target = Path(path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "moth.complexity-baseline.v1",
+        "generated_at": utc_now_iso(),
+        "identity_mode": "path_kind_message",
+        "findings": findings,
+    }
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -365,13 +411,90 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if outcome["verdict"] != "FAIL" else 1
 
     if args.cmd == "complexity":
-        from moth.analyzers.complexity import main as complexity_main
+        from moth.analyzers.complexity import render_markdown as render_complexity_markdown
+        from moth.analyzers.complexity import run as run_complexity
 
-        # 直接回灌 vendored 分析器的 main(argv), 保证 CLI 语义/输出与原脚本逐字节一致。
-        forwarded = [args.root, "--format", args.format, "--max-findings", str(args.max_findings)]
-        for item in args.exclude:
-            forwarded.extend(["--exclude", item])
-        return complexity_main(forwarded)
+        root = Path(args.repo or args.root).expanduser().resolve()
+        if args.repo and args.root != "." and Path(args.root).expanduser().resolve() != root:
+            sys.stderr.write("moth complexity: positional root and --repo disagree\n")
+            return 2
+        profile = None
+        if not args.no_profile:
+            profile = load_profile(args.profile) if args.profile else match_profile(root)
+        if profile is not None and profile.repo_path.resolve() != root:
+            sys.stderr.write("moth complexity: profile repository does not match scan root\n")
+            return 2
+
+        excludes = list(dict.fromkeys([*(profile.complexity_excludes if profile else []), *args.exclude]))
+        scan_limit = 1_000_000 if args.write_baseline else args.max_findings
+        if profile is not None and profile.complexity_command:
+            analysis = run_complexity_analysis(root, profile.complexity_command)
+            if analysis["verdict"] == "FAIL":
+                for issue in analysis.get("issues") or ["complexity analysis failed"]:
+                    sys.stderr.write(f"moth complexity: {issue}\n")
+                return 1
+            external_findings = list(analysis.get("findings") or [])
+            result = {
+                "findings": external_findings,
+                "total": len(external_findings),
+                "truncated": False,
+            }
+        else:
+            result = run_complexity(
+                root,
+                excludes,
+                max_findings=scan_limit,
+                include_ignored=args.include_ignored,
+            )
+        all_findings = list(result["findings"])
+        display_limit = max(0, args.max_findings)
+        findings = all_findings[:display_limit]
+
+        baseline_path = profile.complexity_baseline_path if profile else None
+        baseline_findings, baseline_status = load_complexity_baseline(baseline_path)
+        diff_kwargs = {}
+        if profile is not None and profile.complexity_ignored_path_parts is not None:
+            diff_kwargs["ignored_path_parts"] = profile.complexity_ignored_path_parts
+        diff = build_complexity_diff_report(
+            all_findings,
+            baseline_findings,
+            baseline_status=baseline_status,
+            repo_root=root,
+            **diff_kwargs,
+        )
+        governance_state = (
+            "UNBASELINED"
+            if diff["status"] != "compared"
+            else "CAUTION"
+            if int(diff.get("new_high_count") or 0)
+            else "REVIEW"
+            if int(diff.get("new_count") or 0)
+            else "STABLE"
+        )
+
+        if profile is None:
+            sys.stderr.write("profile not applied; using defaults\n")
+        else:
+            sys.stderr.write(
+                f"profile applied: {profile.name}; excludes={excludes or []}; "
+                f"analyzer={'external' if profile.complexity_command else 'builtin'}; "
+                f"baseline={baseline_status}; governance={governance_state}\n"
+            )
+        if args.write_baseline:
+            written = _write_complexity_baseline(args.write_baseline, all_findings)
+            sys.stderr.write(f"baseline written: {written}\n")
+
+        if args.format == "json":
+            sys.stdout.write(json.dumps(findings, indent=2) + "\n")
+        else:
+            rendered = render_complexity_markdown(findings)
+            if int(result["total"]) > len(findings):
+                rendered += (
+                    f"\nShowing {len(findings)} of {result['total']} findings. "
+                    "Raise --max-findings to see the rest.\n"
+                )
+            sys.stdout.write(rendered)
+        return 0
 
     if args.cmd == "coupling":
         from moth.checks.coupling import impact, orphans, render_impact, render_orphans

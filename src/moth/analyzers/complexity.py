@@ -2,13 +2,11 @@
 
 Original: https://github.com/Kappaemme-git/codex-complexity-optimizer
 
-vendored from complexity-optimizer skill 2026-07-02, schema-frozen: the
-findings JSON schema (path/line/severity/kind/message/suggestion/confidence)
-and the CLI semantics (positional root, --format json|markdown, repeatable
---exclude, --max-findings) must stay byte-compatible with the upstream
-script — downstream baselines and pre_push gates consume this schema.
-Only the entrypoint changed: the ``if __name__ == "__main__"`` shell was
-replaced by ``main(argv)`` plus the pure-function ``run(paths, excludes, ...)``.
+vendored from complexity-optimizer skill 2026-07-02. The findings JSON schema
+(path/line/severity/kind/message/suggestion/confidence) remains frozen for
+downstream baselines and gates. Moth adds repository-boundary calibration:
+Git-ignored files are skipped by default and severity is ranked together with
+confidence. ``--include-ignored`` preserves the upstream broad-scan behavior.
 """
 
 from __future__ import annotations
@@ -18,6 +16,7 @@ import ast
 import json
 import os
 import re
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -115,7 +114,80 @@ class Finding:
     confidence: str = "low"
 
 
-def iter_files(root: Path, excludes: set[str]) -> Iterable[Path]:
+def _git_visible_files(root: Path) -> list[Path] | None:
+    try:
+        top_level = subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.untrackedCache=false",
+                "-C",
+                str(root),
+                "rev-parse",
+                "--show-toplevel",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        git_root = Path(top_level).resolve()
+        relative_root = root.resolve().relative_to(git_root)
+        completed = subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.untrackedCache=false",
+                "-C",
+                str(git_root),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                relative_root.as_posix() or ".",
+            ],
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return None
+    paths: list[Path] = []
+    for raw in completed.stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            relative = Path(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            continue
+        candidate = (git_root / relative).resolve()
+        if candidate.is_file():
+            paths.append(candidate)
+    return paths
+
+
+def iter_files(
+    root: Path,
+    excludes: set[str],
+    *,
+    include_ignored: bool = False,
+) -> Iterable[Path]:
+    git_files = None if include_ignored else _git_visible_files(root)
+    if git_files is not None:
+        for path in git_files:
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                continue
+            if any(part in excludes for part in relative.parts[:-1]):
+                continue
+            if path.suffix in TEXT_EXTENSIONS:
+                yield path
+        return
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in excludes]
         for filename in filenames:
@@ -457,9 +529,21 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
     return result
 
 
-def severity_rank(finding: Finding) -> tuple[int, str, int]:
-    order = {"high": 0, "medium": 1, "info": 2}
-    return (order.get(finding.severity, 3), finding.path, finding.line)
+def severity_rank(finding: Finding) -> tuple[int, int, int, str, int]:
+    severity_weight = {"high": 3, "medium": 2, "info": 1}
+    confidence_weight = {"high": 3, "medium": 2, "low": 1}
+    severity_order = {"high": 0, "medium": 1, "info": 2}
+    confidence_order = {"high": 0, "medium": 1, "low": 2}
+    attention_score = severity_weight.get(finding.severity, 0) * confidence_weight.get(
+        finding.confidence, 0
+    )
+    return (
+        -attention_score,
+        severity_order.get(finding.severity, 3),
+        confidence_order.get(finding.confidence, 3),
+        finding.path,
+        finding.line,
+    )
 
 
 def render_markdown(findings: list[dict[str, Any]]) -> str:
@@ -467,9 +551,12 @@ def render_markdown(findings: list[dict[str, Any]]) -> str:
         return "No obvious complexity hotspots found by heuristic scanning.\n"
     lines = ["# Complexity Hotspots", ""]
     for finding in findings:
+        severity = finding["severity"].upper()
+        if finding.get("confidence") == "low":
+            severity += "?"
         lines.extend(
             [
-                f"## {finding['severity'].upper()} {finding['kind']}",
+                f"## {severity} {finding['kind']}",
                 f"- Location: `{finding['path']}:{finding['line']}`",
                 f"- Confidence: {finding['confidence']}",
                 f"- Finding: {finding['message']}",
@@ -485,6 +572,7 @@ def run(
     excludes: Sequence[str] = (),
     *,
     max_findings: int = 80,
+    include_ignored: bool = False,
 ) -> dict[str, Any]:
     """Pure-function interface over the scanner.
 
@@ -499,7 +587,11 @@ def run(
     findings: list[Finding] = []
     for raw_root in paths:
         root = Path(raw_root).resolve()
-        for path in iter_files(root, effective_excludes):
+        for path in iter_files(
+            root,
+            effective_excludes,
+            include_ignored=include_ignored,
+        ):
             text = read_text(path)
             if text is None:
                 continue
@@ -523,9 +615,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
     parser.add_argument("--exclude", action="append", default=[], help="Additional directory name to exclude.")
     parser.add_argument("--max-findings", type=int, default=80)
+    parser.add_argument(
+        "--include-ignored",
+        action="store_true",
+        help="Include files ignored by Git when the scan root is a Git repository.",
+    )
     args = parser.parse_args(argv)
 
-    result = run(args.root, args.exclude, max_findings=args.max_findings)
+    result = run(
+        args.root,
+        args.exclude,
+        max_findings=args.max_findings,
+        include_ignored=args.include_ignored,
+    )
     findings = result["findings"]
     if args.format == "json":
         print(json.dumps(findings, indent=2))
