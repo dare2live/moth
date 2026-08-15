@@ -67,7 +67,11 @@ stages:
       - tests/test_architecture_model.py
       - tests/test_python_project_detector.py
       - tests/test_platform_detectors.py
-    residual: []
+    residual:
+      - 2026-08-14 the project model acceptance matrix is complete across all five configured
+        projects; no project reports FAIL and python/technology coverage moved from one to four
+      - architecture declarations landed in all five repositories the same day; every project
+        now resolves DECLARED/CONFORMANT, so technology and architecture coverage is closed
   - id: stage_2
     title: Mio 与架构师协作上下文闭环
     state: COMPLETE
@@ -96,7 +100,14 @@ stages:
       - tests/test_html_report.py
       - tests/test_visual_schema.py
       - tests/test_cli.py
-    residual: []
+    residual:
+      - 2026-08-14 desktop (1280x720) and mobile (375x812) browser acceptance ran against the
+        live console; zero console errors, no page-level horizontal overflow, and the rail
+        collapses into the intended horizontal scroll strip below the 760px breakpoint
+      - mobile interaction verified end to end, where an initially off-screen rail button is
+        reachable, activates, and switches the main view; project selection survives reload
+      - acceptance surfaced and fixed a real presentation defect where the repository root
+        python application rendered as a single dot and duplicated an existing entrypoint
   - id: stage_4
     title: 逐层架构浏览
     state: COMPLETE
@@ -110,7 +121,13 @@ stages:
       - src/moth/html_report.py
       - tests/test_architecture_model.py
       - tests/test_visual_model.py
-    residual: []
+    residual:
+      - 2026-08-14 all five registered repositories now declare .moth/architecture.yaml and
+        resolve to DECLARED/CONFORMANT with zero violations and zero unverifiable entities,
+        so the architecture layer is no longer empty for any registered project
+      - relations, flows and state machines are declared as empty sets on the four newly
+        declared repositories, which states that the declaration claims no relation rather
+        than that no relation exists; declaring unverified relations would manufacture drift
   - id: stage_5
     title: 多平台适配
     state: COMPLETE
@@ -124,7 +141,16 @@ stages:
       - src/moth/detectors/registry.py
       - src/moth/detectors/platform_rules.yaml
       - tests/test_platform_detectors.py
-    residual: []
+    residual:
+      - 2026-08-14 the detector matrix was exercised across all five registered projects;
+        it surfaced and fixed two real defects (python-project only accepted pyproject.toml so
+        four real Python repositories reported NOT_DETECTED; discovered notebooks that fail to
+        parse were escalated to project issues, which made gaokao FAIL entirely on vendored
+        third-party data under data/external)
+      - platform coverage stays deliberately bounded per the plan ("不追求第一版支持所有语言和框架");
+        this is a standing design property, not an open residual
+      - lifehack has no root Python manifest and therefore stays NOT_DETECTED by design;
+        closing that would require inventing project identity from a directory name
   - id: stage_6
     title: 风险关联与变化分析
     state: COMPLETE
@@ -173,7 +199,7 @@ stages:
     residual: []
   - id: stage_9
     title: 本地 Web Console 与项目 API
-    state: COMPLETE
+    state: PARTIAL
     evidence:
       - .moth/web.yaml
       - src/moth/web_policy.yaml
@@ -189,4 +215,13 @@ stages:
       - src/moth/schemas/moth.web-console.schema.json
       - src/moth/schemas/moth.web-project-view.schema.json
       - tests/test_web_console.py
-    residual: []
+    residual:
+      - 2026-08-14 the project selector was accepted live end to end across all five registered
+        projects; the policy ceiling is max_projects 64, so the earlier ten-project wording
+        described the target scale rather than a hard limit
+      - API surface accepted with real requests, where the authenticated project list returns five
+        entries, an unauthenticated request is rejected with 401, and the select endpoint
+        rejects a GET with 405
+      - the directory picker opens a native host dialog and therefore cannot be exercised
+        headlessly; only its HTTP method guard is covered, so this item stays open and must
+        be accepted by a human at the machine

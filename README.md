@@ -187,9 +187,12 @@ one idempotent Moth call, run inside that repository:
 moth init --repo .
 ```
 
-`moth init` registers the project for the Web Console by default. Use
-`--no-register-web` only when the repository must stay out of the selector.
-The older explicit `--register-web` form remains compatible.
+`moth init` registers the project for the Web Console by default. On macOS,
+the running Web Console can also add a repository without changing that
+repository: click `添加项目`, choose its directory in the native folder picker,
+and Moth updates the user-level registry. Use `--no-register-web` only when the
+repository must stay out of the selector. The older explicit `--register-web`
+form remains compatible.
 
 To start the backend from the Moth checkout, double-click `start.command`.
 It uses the checkout's `.venv` when available, starts the authenticated
@@ -209,6 +212,7 @@ projects declared in the YAML registry and requests a fresh inspection with:
 
 ```http
 GET  /api/v1/projects
+POST /api/v1/projects/select
 POST /api/v1/inspections
 Content-Type: application/json
 
@@ -223,6 +227,11 @@ the portable `moth.inspection.v1` plus a validated
 Skill bodies are not API fields. The server binds only to `127.0.0.1`, requires
 the capability token, validates Host and Origin, exposes no CORS permission,
 and accepts only one inspection at a time.
+
+The page requests a fresh inspection when it first opens, when the selected
+project changes, and when `刷新检查` is clicked. Inspection and asset responses
+use `Cache-Control: no-store`; leaving a page open does not continuously scan
+the repository, so use `刷新检查` after changes made while the page stays open.
 
 The default user registry is `${MOTH_WEB_CONFIG}`, then
 `${XDG_CONFIG_HOME}/moth/web.yaml`, then `~/.config/moth/web.yaml`.

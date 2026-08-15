@@ -1604,6 +1604,81 @@ executor contract 的遥测才能把上下文判为 `READY`；
 - 回滚规则保留上一观测版本/插件缓存；若新版本能力探针失败则恢复上一运行时并保持
   兼容性失败，不能通过削弱合同或设永久版本天花板来“修绿”。
 
+## 2026-07-24 收口实施计划
+
+本节是当前实施权威，合并此前未验收的 Web Console 工作、真实项目评测确认的 CLI
+与信号校准缺口，以及模型能力发现需求。后续只更新本节和
+`docs/major-upgrade-ledger.yaml`，不另建平行计划文档。
+
+### 当前基线
+
+- 工作树已有 25 个修改路径，主要是 Web Console、项目模型、视觉模型和本地项目注册；
+- `node --check src/moth/web_assets/app.js` 已通过；
+- Web/视觉/report 定向测试为 `60 passed / 1 failed`，失败是测试 mock 尚未接受新增的
+  `evidence_paths` 参数，不是产品行为失败；
+- Ancestree 实测：profile-aware doctor 为 39 条 complexity finding，裸
+  `moth complexity .` 为 52 条，其中 13 条来自 `scripts/`；39 条中 31 条是
+  `confidence=low`，另有 13 条来自 `.gitignore` 已排除的设计参考目录；
+- Moth 自仓 Omen 证据为 `COMPLETE`、`compatible=true`、观测版本 4.25.0；
+- Web `safe_view` 不执行 Omen、仓库 assertion、外部 complexity command 或可配置
+  adapter，这是安全边界，不是 Omen 未接入。
+
+### 执行阶段
+
+| 阶段 | 状态 | 实施范围 | 验收 |
+|---|---|---|---|
+| S0 恢复定向绿线 | DONE | 修复当前测试合同漂移，不削弱断言 | Web、视觉、report 定向测试 `61 passed` |
+| S1 Complexity 与 CLI 一致性 | DONE | 默认读取 repo profile、尊重 `.gitignore`、按 severity 与 confidence 排序、明确 baseline 治理状态、增加 `--version` 和 baseline 写入入口 | Ancestree 的 doctor 与 `moth complexity .` 使用同一扫描边界；JSON 保持可解析；全量测试通过 |
+| S2 能力目录与任务选择 | TODO | 增加机器可读 capability catalog、task-kind 推荐、可用性与副作用说明，并让 Moth Skill 先读目录再单选或多选 | 新 Agent 无需记忆子命令即可选择并调用一项或多项能力 |
+| S3 项目理解与 gate 可见性 | PARTIAL | 已补 `desktop/` plain/static 项目识别；只展示 gate inventory，不默认执行 | Ancestree 被识别为 Desktop/Web 应用；gates 与 assertions 分层可见 |
+| S4 Web Console 收口 | PARTIAL | 已完成新版页面骨架、学习视图和三视角去重基础；仍需真实项目与浏览器收口 | Moth 与 LifeHack 的架构/技术栈不再为 0；桌面和移动布局无重叠 |
+| S5 多项目与一键启动验收 | PARTIAL | 项目选择、目录注册和浏览器启动能力已实现；十项目端到端验收仍未完成 | 用户双击后可直接选择项目；新增目录无需改代码 |
+| S6 文档、Schema 与发布真相 | IN_PROGRESS | 已纠正 ledger 假完成状态；README、compatibility、Schema 和插件 metadata 仍待最终对齐 | 无测试或实跑证据的阶段不得标 `DONE` |
+| S7 独立复核与交付 | TODO | 全量测试、release gates、CodeGraph、真实浏览器和 Rule 10 diff review | 全部门禁通过后新 commit 收口，工作树无未说明残留 |
+
+### 信号语义修正规则
+
+- complexity `PASS` 只表示扫描器成功，不表示项目复杂度健康；新增独立的 baseline/
+  governance 状态，避免把 `baseline_unavailable` 显示成“无回归”；
+- severity 表示“若成立的影响”，confidence 表示“该判断成立的可信度”，不得通过改写
+  原始 severity 混为一个字段；排序和 UI 可增加 attention rank；
+- Omen 与 Complexity 的启发式新高点单独最多产生 `CAUTION`，只有目标仓库自己的 gate
+  才能将其升级为 `NO_GO`；
+- `inspect` 中 Skill 为 `DISCOVERED` 但缺 receipt，表示本轮执行器尚未加载，不表示
+  profile 遗漏或 Skill 不在磁盘；提示应给执行器下一步，不生成重复 profile 补丁；
+- snapshot/doctor 继续保留兼容 `status`，同时逐步拆开 scan health、repo health 与
+  context readiness，避免把工具失败、治理缺口和协作上下文混成一个 WARN。
+
+### 能力目录合同
+
+Moth Core 提供无副作用的能力目录，至少包含：
+
+- 逻辑能力 ID、用途、适用 task kind；
+- Moth 入口和所需输入；
+- 只读、写本地索引、执行 repo gate 等副作用等级；
+- 当前 profile、平台和安装条件下的可用状态；
+- 自动推荐项和宿主模型最终选择的一项或多项；
+- Omen、CodeGraph、内建 Complexity、coupling、cycles、takeover、gates、change safety、
+  Web Console 与 Guidance/Controller Context 的边界。
+
+Mio、architect-controller 和项目 Skill 仍由宿主 Agent 读取和执行。Moth 只负责发现、
+排序、能力选择计划和收据，不成为 Skill runtime，也不导出 Skill 正文。
+
+### 实项目验收矩阵
+
+- Ancestree：profile/gitignore/baseline 一致性、confidence 排序、Desktop/Web 识别、gate inventory；
+- LifeHack：应用、架构、技术栈、项目文档和去重后的三视角；
+- Moth：full inspection 可见 Omen，`safe_view` 保持禁用外部 adapter；
+- 已注册项目：alumnote、ancestree、charades、chuzhong、gaokao、gaozhong、lifehack、
+  moth、voxjury、chunkymonkey；
+- 浏览器：桌面与移动宽度、项目切换失败、目录选择取消、原生选择器失败、数据刷新和
+  绝对路径/令牌不泄漏。
+
+### 完成规则
+
+只有所有阶段标为 `DONE`、对应验收证据存在、全量测试和发布门禁通过、独立 diff
+复核通过并完成新 commit，才允许把本轮大版本收口写成完成。
+
 ---
 
 # 二十一、不应在方案阶段写死的内容
