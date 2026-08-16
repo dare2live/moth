@@ -223,7 +223,16 @@ def build_complexity_diff_report(
     identity_mode: str = "path_kind_message",
     repo_root: str | Path | None = None,
     ignored_path_parts: Sequence[str] = DEFAULT_IGNORED_PATH_PARTS,
+    current_truncated: bool = False,
 ) -> dict[str, Any]:
+    """current 与 baseline 的 finding 差分。
+
+    ``current_truncated`` 是**必要入参而非可选装饰**: 调用方默认只扫 ``--max-findings``
+    (80) 条, 而 baseline 是用 1_000_000 写的 —— 拿截断集去比全量, 超出 80 的那些会全部
+    被算成"已解决"。2026-08-16 实测: baseline 100 条 / 当前取其前 80 条(内容一行没改),
+    输出 ``resolved_count=20`` 且 governance 判 STABLE。
+    截断时本函数**拒绝输出 resolved 语义**, 因为"没看到"和"不存在"是两回事。
+    """
     current_all = [_normalize_finding(item, repo_root=repo_root) for item in current_findings if isinstance(item, dict)]
     baseline_all = [_normalize_finding(item, repo_root=repo_root) for item in baseline_findings if isinstance(item, dict)]
     current = [item for item in current_all if not _is_ignored_path(item["path"], ignored_path_parts)]
@@ -270,6 +279,31 @@ def build_complexity_diff_report(
     new_findings.sort(key=_finding_sort_key)
     resolved_findings.sort(key=_finding_sort_key)
     unchanged_findings.sort(key=_finding_sort_key)
+    if current_truncated:
+        # 截断下 new/unchanged 仍成立(看到的确实存在), 但 resolved 不成立 ——
+        # 消失可能只是没扫到。显式置 None 而非 0: 0 会被读成"确认没有解决项"。
+        return {
+            "status": "compared_truncated",
+            "baseline_status": baseline_status,
+            "baseline_count": len(baseline),
+            "current_count": len(current),
+            "ignored_count": ignored_count,
+            "new_count": len(new_findings),
+            "resolved_count": None,
+            "resolved_unverifiable_reason": (
+                "current scan was truncated; a finding absent from the current set may simply "
+                "not have been scanned"
+            ),
+            "unchanged_count": len(unchanged_findings),
+            "new_high_count": sum(
+                1 for finding in new_findings if finding.get("severity") == "high"
+            ),
+            "new_findings": new_findings,
+            "resolved_findings": [],
+            "unchanged_findings": unchanged_findings,
+            "unclassified_count": 0,
+            "unclassified_high_count": 0,
+        }
     return {
         "status": "compared",
         "baseline_status": baseline_status,

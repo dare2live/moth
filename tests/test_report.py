@@ -765,3 +765,18 @@ def test_build_report_notes_ignored_excludes_with_explicit_command(tmp_path, mon
 
     assert any("complexity_excludes is ignored" in warning for warning in payload["warnings"])
     assert payload["status"] == "WARN"
+
+
+def test_truncated_complexity_scan_is_not_reported_stable() -> None:
+    """截断扫描的治理态必须是 UNVERIFIED_TRUNCATED, 不得是 STABLE。
+
+    判 STABLE 等于用"没看到"冒充"没问题"。
+    """
+    assert report_module._complexity_governance_state(
+        {"status": "compared_truncated", "new_count": 0, "new_high_count": 0}
+    ) == "UNVERIFIED_TRUNCATED"
+    # 对照: 未截断且无新增才是 STABLE
+    assert report_module._complexity_governance_state(
+        {"status": "compared", "new_count": 0, "new_high_count": 0}
+    ) == "STABLE"
+

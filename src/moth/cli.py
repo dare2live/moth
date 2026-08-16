@@ -455,10 +455,16 @@ def main(argv: list[str] | None = None) -> int:
         diff_kwargs = {}
         if profile is not None and profile.complexity_ignored_path_parts is not None:
             diff_kwargs["ignored_path_parts"] = profile.complexity_ignored_path_parts
+        # 截断判定: 非 baseline 模式下 scan_limit == --max-findings(默认 80), 扫满即意味着
+        # 后面还有没扫到的。不告诉 diff 这件事, 它会把"没扫到"当成"已解决"。
+        current_truncated = bool(
+            not args.write_baseline and scan_limit and len(all_findings) >= scan_limit
+        )
         diff = build_complexity_diff_report(
             all_findings,
             baseline_findings,
             baseline_status=baseline_status,
+            current_truncated=current_truncated,
             repo_root=root,
             **diff_kwargs,
         )

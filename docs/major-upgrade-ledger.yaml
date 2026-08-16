@@ -190,7 +190,7 @@ stages:
     title: 工具和上游管理
     state: COMPLETE
     evidence:
-      - THIRD_PARTY_NOTICES.md
+      - NOTICE.md
       - pyproject.toml
       - src/moth/tool_installations.py
       - src/moth/output_transport.py

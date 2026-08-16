@@ -264,3 +264,49 @@ def test_run_analysis_explicit_command_still_uses_subprocess(tmp_path, monkeypat
     assert result["verdict"] == "PASS"
     assert calls["command"][-1] == "json"
     assert result["command"][0] == "python"
+
+
+def _synthetic(n: int) -> list[dict]:
+    return [
+        {"path": f"m{i}.py", "kind": "nested_loop", "message": f"issue {i}", "line": i}
+        for i in range(n)
+    ]
+
+
+def test_truncated_scan_refuses_to_claim_resolved_findings() -> None:
+    """截断扫描不得把"没扫到"报成"已解决"。
+
+    2026-08-16 实测: baseline 100 条、当前取其前 80 条(内容一行没改),
+    旧实现输出 resolved_count=20 且 governance 判 STABLE ——
+    "什么都没做"被报成"解决了 20 个问题"。
+    """
+    baseline = _synthetic(100)
+    current = baseline[:80]
+
+    diff = build_complexity_diff_report(
+        list(current), list(baseline),
+        baseline_status="loaded", repo_root=".", current_truncated=True,
+    )
+
+    assert diff["status"] == "compared_truncated"
+    assert diff["resolved_count"] is None, "截断下 resolved 不可判定, 且不得写 0(0 会被读成已确认没有)"
+    assert diff["resolved_findings"] == []
+    assert diff.get("resolved_unverifiable_reason")
+    # new/unchanged 仍成立: 看到的确实存在
+    assert diff["new_count"] == 0
+    assert diff["unchanged_count"] == 80
+
+
+def test_untruncated_scan_still_reports_real_resolutions() -> None:
+    """反向: 未截断时真实解决必须照常报出, 否则修过头。"""
+    baseline = _synthetic(100)
+    current = baseline[:80]
+
+    diff = build_complexity_diff_report(
+        list(current), list(baseline),
+        baseline_status="loaded", repo_root=".", current_truncated=False,
+    )
+
+    assert diff["status"] == "compared"
+    assert diff["resolved_count"] == 20
+

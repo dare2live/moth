@@ -85,6 +85,10 @@ def _warnings_from_complexity(complexity: dict[str, Any]) -> list[str]:
 
 
 def _complexity_governance_state(diff: dict[str, Any]) -> str:
+    # 截断扫描**不得判 STABLE**: 那等于用"没看到"冒充"没问题"。
+    # (2026-08-16: 截断下曾输出 resolved=20 + STABLE, 而仓库一行没改。)
+    if diff.get("status") == "compared_truncated":
+        return "UNVERIFIED_TRUNCATED"
     if diff.get("status") != "compared":
         return "UNBASELINED"
     if int(diff.get("new_high_count") or 0):
