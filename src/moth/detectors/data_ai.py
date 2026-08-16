@@ -38,7 +38,6 @@ def detect_data_ai_project(repo_path: str | Path) -> dict[str, Any]:
     )
     modules: dict[str, dict[str, Any]] = {}
     evidence_by_id: dict[str, dict[str, str]] = {}
-    issues: list[str] = []
     warnings: list[str] = []
     for relative in paths:
         raw, failure = read_manifest(
@@ -181,11 +180,17 @@ def detect_data_ai_project(repo_path: str | Path) -> dict[str, Any]:
         warnings.append("data/AI coverage partial: bounded filesystem scan was incomplete")
     if notebook_truncated:
         warnings.append("notebook coverage partial: bounded filesystem scan was incomplete")
+    # 本检测器**没有** INVALID 态, 这是刻意的:
+    # 其它检测器的 INVALID 一律指"声明性清单自己坏了"(pyproject 语法错 / 缺 project.name),
+    # 而 data/AI 消费的 pyproject 有效性已明确让给 python 检测器(见上方 tomllib 分支注释),
+    # 扫到的 notebook 坏了则属覆盖问题、走 warning(2026-08-14 gaokao 实证: 23 条 issue 全部
+    # 来自 vendored 第三方数据集, 却把整个项目判成 FAIL)。
+    # 两条路都不归它, 于是 `issues` 从此没有任何 append 点、INVALID 永远不可达 ——
+    # 与其留一个到不了的状态假装还能报失败, 不如显式退役(2026-08-16 独立审查第 8 条)。
     return detector_result(
         config["detector_id"],
-        "DETECTED" if evidence_by_id else ("INVALID" if issues else "NOT_DETECTED"),
+        "DETECTED" if evidence_by_id else "NOT_DETECTED",
         modules=modules.values(),
         evidence=evidence_by_id.values(),
-        issues=issues,
         warnings=warnings,
     )

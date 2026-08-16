@@ -716,3 +716,24 @@ def test_double_star_at_depth_limit_with_nothing_below_is_not_incomplete(tmp_pat
     assert incomplete is False, "触顶处下面没有子目录, 就是扫完了"
     assert [p.as_posix() for p in paths] == ["a/b/x.ipynb"]
 
+
+def test_repository_root_application_uses_repo_name_not_a_dot(tmp_path) -> None:
+    """仓根应用必须有可读名字 —— `Path(".").as_posix()` 返回 "." 而非空串。
+
+    它是**真值**, 所以 `root.as_posix() or <repo dir name>` 的兜底永远不触发,
+    界面上就出现一个标题是单个句点的应用(2026-08-14 Web Console 实测发现)。
+    此前没有任何测试走这条分支 —— 既有用例的 root 都是 "backend", 修复可以被
+    静默改回去而测试全绿。
+    """
+    (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8"
+    )
+
+    apps = build_project_model(tmp_path)["applications"]
+    root_apps = [a for a in apps if a.get("entrypoint") == "main.py"]
+
+    assert root_apps, "仓根应用应被检出"
+    assert root_apps[0]["name"] == tmp_path.name, f"应取仓目录名, 实得 {root_apps[0]['name']!r}"
+    assert root_apps[0]["name"] != ".", "标题不得是一个句点"
+
