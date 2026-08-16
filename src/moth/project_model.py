@@ -19,29 +19,6 @@ from moth.detectors.registry import run_detectors
 _MAX_PROFILE_EVIDENCE_BYTES = 1_048_576
 
 
-def _repository_identity(repo_path: str | Path) -> tuple[dict[str, Any], dict[str, str]]:
-    repo = Path(repo_path).resolve()
-    name = repo.name or "repository"
-    slug = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-_") or "repository"
-    observed = f"repository-directory-name:{name}"
-    evidence_id = "repository:root"
-    return (
-        {
-            "id": f"repository:{slug}",
-            "name": name,
-            "version": None,
-            "description": None,
-            "evidence_ids": [evidence_id],
-        },
-        {
-            "id": evidence_id,
-            "kind": "repository_boundary",
-            "locator": ".",
-            "sha256": "sha256:" + hashlib.sha256(observed.encode("utf-8")).hexdigest(),
-        },
-    )
-
-
 def _merge_project(
     fragments: list[dict[str, Any]],
     issues: list[str],
@@ -223,10 +200,15 @@ def build_project_model(
         }
         modules.append(mixed)
         modules.sort(key=lambda item: item["id"])
+    # 没有清单就没有身份。此处**刻意不**用仓目录名兜底: 目录名是文件系统的偶然,
+    # 不是项目对自己的声明, 把它填进 project 会让"推断"和"清单派生"在同一字段里
+    # 无法区分。原实现还为它伪造了一条 evidence —— sha256 算的是合成字符串
+    # `repository-directory-name:<name>`, locator 却写 ".", 独立验证者按 locator
+    # 复算永远对不上, 等于把"名字"包装成"证据"混进真实文件哈希里。
+    # (2026-08-15 独立审查 REQUEST_CHANGES 第 1 条: 同一刀的 message 声称
+    #  "inventing identity would defeat the truth-source-first premise",
+    #  却在本层实现了它。删除后代码与声明一致, ledger stage_5 那条理由也重新成立。)
     project = _merge_project(detected, issues)
-    if project is None:
-        project, repository_evidence = _repository_identity(repo_path)
-        evidence.append(repository_evidence)
     architecture = build_architecture_model(
         repo_path,
         project=project,

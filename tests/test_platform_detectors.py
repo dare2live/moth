@@ -641,3 +641,28 @@ def test_repo_root_python_app_is_named_and_not_duplicated(tmp_path) -> None:
     assert len(entrypoints) == len(set(entrypoints)), f"同一 entrypoint 不得产出多个应用: {entrypoints}"
     assert "." not in [a.get("name") for a in apps], "仓根应用必须有可读名字, 不能是一个句点"
 
+
+def test_monorepo_services_survive_entrypoint_dedup(tmp_path) -> None:
+    """去重不得吃掉真实子服务, 且丢弃必须发声。
+
+    2026-08-15 独立审查实测复现: 仓根清单的 entrypoint 候选是全仓所有 main.py,
+    min() 挑中 svc_a/main.py; 仓根先建应用后, svc_a 撞去重被静默丢掉 —— 清单里
+    svc_a 消失, 换成一个以仓名命名、入口却指向 svc_a 的应用, 且零告警。
+    """
+    (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    for svc, dep in (("svc_a", "fastapi"), ("svc_b", "flask")):
+        d = tmp_path / svc
+        d.mkdir()
+        (d / "requirements.txt").write_text(f"{dep}\n", encoding="utf-8")
+        (d / "main.py").write_text("app = object()\n", encoding="utf-8")
+
+    model = build_project_model(tmp_path)
+    names = {a["name"] for a in model["applications"]}
+    entries = [a.get("entrypoint") for a in model["applications"]]
+
+    assert {"svc_a", "svc_b"} <= names, f"子服务不得被去重吃掉: {names}"
+    assert len(entries) == len(set(entries)), "同一 entrypoint 仍不得出两个应用"
+    assert any(
+        "shares entrypoint" in w for w in (model["coverage"]["warnings"] or [])
+    ), "丢弃祖先清单时必须发声, 不能静默"
+

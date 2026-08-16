@@ -110,37 +110,23 @@ def test_project_model_is_canonical_across_repository_locations(tmp_path) -> Non
     assert str(tmp_path) not in repr(first)
 
 
-def test_unknown_repository_uses_truthful_repository_identity(tmp_path) -> None:
+def test_repository_without_manifest_has_no_project_identity(tmp_path) -> None:
+    """没有清单就**没有身份** —— 不许拿目录名兜底。
+
+    2026-08-15 独立审查抓到: 原实现在这里用仓目录名填 project, 并为它伪造一条 evidence
+    (sha256 算的是合成字符串 `repository-directory-name:<name>`, locator 却写 "."),
+    与同一刀 commit message 声称的 "inventing identity would defeat the
+    truth-source-first premise" 直接矛盾 —— detector 层守住了, model 层却做了。
+    本例锁住模型层同样不发明身份; 目录名是文件系统的偶然, 不是项目对自己的声明。
+    """
     model = build_project_model(tmp_path)
 
     assert model["verdict"] == "WARN"
-    assert model["project"] == {
-        "id": f"repository:{tmp_path.name}",
-        "name": tmp_path.name,
-        "version": None,
-        "description": None,
-        "evidence_ids": ["repository:root"],
-    }
+    assert model["project"] is None
     assert model["applications"] == []
     assert model["runtimes"] == []
-    assert model["modules"] == []
-    assert [entity["id"] for entity in model["entities"]] == [
-        f"repository:{tmp_path.name}"
-    ]
-    assert model["relations"] == []
-    assert model["flows"] == []
-    assert model["state_machines"] == []
-    assert model["evidence"][0]["id"] == "repository:root"
-    assert model["evidence"][0]["locator"] == "."
-    assert all(
-        detector["state"] == "NOT_DETECTED"
-        for detector in model["coverage"]["detectors"]
-    )
-    assert model["coverage"]["issues"] == []
-    assert model["coverage"]["warnings"] == [
-        "project coverage unavailable: no supported manifest detected"
-    ]
-
+    # 伪证据必须一并消失: 不得有任何 evidence 的 sha256 是对合成字符串算的
+    assert all(item.get("id") != "repository:root" for item in model["evidence"])
 
 def test_project_model_includes_bounded_repo_local_profile_evidence(tmp_path) -> None:
     overview = tmp_path / "docs" / "overview.md"

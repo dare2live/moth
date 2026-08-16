@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+
+import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -315,11 +317,40 @@ def load_profile(ref: str | Path) -> RepoProfile:
     )
 
 
-def list_profiles() -> list[RepoProfile]:
+# 一份坏 profile 不得带走整批。**必须包含 yaml.YAMLError**: 它不是 ValueError 的子类,
+# 而"文件被截断/语法写坏"正是最字面意义的 unreadable —— 2026-08-15 独立审查实测,
+# 只捕 ValueError 时一个语法坏掉的 profile 仍会让整条跨仓命令崩溃。
+# 刻意**不**捕 KeyError/TypeError: 那会把 loader 自身的编程错误记成"这份 profile 坏了",
+# 把 bug 伪装成数据问题(同一份审查的第二条建议)。
+_PROFILE_LOAD_ERRORS = (OSError, ValueError, yaml.YAMLError)
+
+
+def _load_profiles_with_failures(
+    paths: list[Path],
+) -> tuple[list[RepoProfile], list[dict[str, str]]]:
+    profiles: list[RepoProfile] = []
+    failures: list[dict[str, str]] = []
+    for path in paths:
+        try:
+            profile = load_profile(path)
+        except _PROFILE_LOAD_ERRORS as exc:
+            failures.append({"path": str(path), "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        if profile.kind == "profile":
+            profiles.append(profile)
+    return profiles, failures
+
+
+def list_profiles_with_failures() -> tuple[list[RepoProfile], list[dict[str, str]]]:
+    """bundled profile 同样适用 —— 之前只有 repo-local 一侧受保护。"""
+
     if not PROFILES_DIR.exists():
-        return []
-    profiles = [load_profile(path) for path in sorted(PROFILES_DIR.glob("*.yaml"))]
-    return [profile for profile in profiles if profile.kind == "profile"]
+        return [], []
+    return _load_profiles_with_failures(sorted(PROFILES_DIR.glob("*.yaml")))
+
+
+def list_profiles() -> list[RepoProfile]:
+    return list_profiles_with_failures()[0]
 
 
 def discover_profiles_with_failures(
@@ -345,22 +376,7 @@ def discover_profiles_with_failures(
             if path.parent.name == ".moth"
         }
     )
-    profiles: list[RepoProfile] = []
-    failures: list[dict[str, str]] = []
-    for path in profile_paths:
-        try:
-            profile = load_profile(path)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            failures.append(
-                {
-                    "path": str(path),
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            )
-            continue
-        if profile.kind == "profile":
-            profiles.append(profile)
-    return profiles, failures
+    return _load_profiles_with_failures(profile_paths)
 
 
 def discover_profiles(search_root: str | Path) -> list[RepoProfile]:

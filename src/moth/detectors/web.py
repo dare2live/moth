@@ -206,7 +206,14 @@ def detect_web_project(repo_path: str | Path) -> dict[str, Any]:
 
     python_dependencies: set[str] = set()
     python_runtime_evidence: list[str] = []
-    for relative in python_manifests:
+    # **深的清单优先**: 一个 monorepo 的仓根清单, 其 entrypoint 候选是全仓所有 main.py,
+    # min() 会挑中某个子服务的入口。若仓根先建应用, 那个子服务再来时就会撞上 entrypoint
+    # 去重被丢掉 —— 结果是真实存在的 svc_a 从清单里消失, 换成一个以仓名命名、入口却指向
+    # svc_a 的应用(2026-08-15 独立审查实测复现, 且当时零告警)。
+    # 按深度降序遍历让最贴近入口的那份清单先认领它。
+    for relative in sorted(
+        python_manifests, key=lambda item: (-len(item.parts), item.as_posix())
+    ):
         raw, failure = read_manifest(
             repo_path,
             relative,
@@ -294,7 +301,17 @@ def detect_web_project(repo_path: str | Path) -> dict[str, Any]:
             )
         # 同一 entrypoint 只产一个应用: 仓根与子目录(如 . 与 backend)会各自扫到
         # 同一份 backend/main.py, 之前因此产出两个重复应用。entrypoint 就是应用的身份。
-        if any(app.get("entrypoint") == entrypoint.as_posix() for app in applications):
+        # **丢弃必须发声** —— 静默 continue 会变成"少报一个应用还全绿", 正是本仓自己在
+        # loader.py 写下的那条原则要禁的(2026-08-15 独立审查指出此处违反了自家规矩)。
+        owner = next(
+            (a for a in applications if a.get("entrypoint") == entrypoint.as_posix()), None
+        )
+        if owner is not None:
+            warnings.append(
+                f"python web application coverage partial: {relative.as_posix()} shares "
+                f"entrypoint {entrypoint.as_posix()} with {owner['id']}; only one application "
+                "is reported for it"
+            )
             continue
         root_slug = _path_slug(root)
         # `Path(".").as_posix()` 返回 "." 而不是空串 —— 它是**真值**, 于是原来的

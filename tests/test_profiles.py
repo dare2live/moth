@@ -10,7 +10,11 @@ from moth.profiles.loader import (
     load_profile,
     match_profile,
 )
-from moth.profiles.loader import discover_profiles, discover_profiles_with_failures
+from moth.profiles.loader import (
+    discover_profiles,
+    discover_profiles_with_failures,
+    list_profiles_with_failures,
+)
 from moth.profiles.scaffold import build_profile_scaffold
 from moth.profiles.scaffold import default_profile_path
 from moth.profiles.scaffold import write_profile_scaffold
@@ -529,4 +533,63 @@ def test_discovery_reports_unreadable_profiles_instead_of_crashing(tmp_path) -> 
 
     # 旧签名保持兼容(既有调用方与测试不受影响)
     assert [p.name for p in discover_profiles(tmp_path)] == ["good"]
+
+
+def test_syntactically_broken_profile_is_reported_not_raised(tmp_path) -> None:
+    """**语法坏掉**的 profile 也不得带走整批 —— 这才是最字面意义的 unreadable。
+
+    2026-08-15 独立审查抓到: 原来只捕 ValueError, 而 `yaml.safe_load` 抛的
+    `yaml.YAMLError` **不是 ValueError 的子类**, 所以一份被截断/写坏的 profile
+    仍会让整条跨仓命令崩溃。原有测试只构造了 ValueError 一种坏法, 正因如此没发现缺口。
+    """
+    good = tmp_path / "good" / ".moth"
+    bad = tmp_path / "bad" / ".moth"
+    good.mkdir(parents=True)
+    bad.mkdir(parents=True)
+    (good / "profile.yaml").write_text(
+        "kind: profile\nname: good\nrepo_path: .\ncodegraph_root: .\n", encoding="utf-8"
+    )
+    (bad / "profile.yaml").write_text("kind: profile\nrepo_path: [unclosed\n", encoding="utf-8")
+
+    profiles, failures = discover_profiles_with_failures(tmp_path)
+
+    assert [p.name for p in profiles] == ["good"]
+    assert len(failures) == 1 and "bad" in failures[0]["path"]
+    assert "Error" in failures[0]["error"], "必须记下是哪种解析错误"
+
+
+def test_loader_programming_errors_are_not_swallowed_as_bad_profiles(monkeypatch, tmp_path) -> None:
+    """KeyError/TypeError **不再**被当成「这份 profile 坏了」。
+
+    把 loader 自身的编程错误记成数据问题, 等于把 bug 伪装成用户输入错误 ——
+    将来重构写错一个 key, 会静默变成一条 "profile unreadable" 而不是炸出来。
+    """
+    repo = tmp_path / "r" / ".moth"
+    repo.mkdir(parents=True)
+    (repo / "profile.yaml").write_text(
+        "kind: profile\nname: r\nrepo_path: .\ncodegraph_root: .\n", encoding="utf-8"
+    )
+
+    import moth.profiles.loader as loader_module
+
+    def _boom(_path):
+        raise TypeError("simulated loader bug")
+
+    monkeypatch.setattr(loader_module, "load_profile", _boom)
+    with pytest.raises(TypeError):
+        discover_profiles_with_failures(tmp_path)
+
+
+def test_bundled_profiles_are_protected_too(monkeypatch, tmp_path) -> None:
+    """bundled 一侧此前完全没保护: 一份坏的 bundled profile 照样带走 moth profiles。"""
+    monkeypatch.setattr("moth.profiles.loader.PROFILES_DIR", tmp_path)
+    (tmp_path / "ok.yaml").write_text(
+        "kind: profile\nname: ok\nrepo_path: .\ncodegraph_root: .\n", encoding="utf-8"
+    )
+    (tmp_path / "broken.yaml").write_text("kind: profile\nrepo_path: [unclosed\n", encoding="utf-8")
+
+    profiles, failures = list_profiles_with_failures()
+
+    assert [p.name for p in profiles] == ["ok"]
+    assert len(failures) == 1 and "broken" in failures[0]["path"]
 

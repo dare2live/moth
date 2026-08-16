@@ -150,7 +150,11 @@ stages:
       - platform coverage stays deliberately bounded per the plan ("不追求第一版支持所有语言和框架");
         this is a standing design property, not an open residual
       - lifehack has no root Python manifest and therefore stays NOT_DETECTED by design;
-        closing that would require inventing project identity from a directory name
+        closing that would require inventing project identity from a directory name.
+        Correction made 2026-08-15 —— an earlier change in this same batch had quietly done exactly
+        that one layer up, in build_project_model, so this reason was void when it was
+        written. The directory-name fallback and its fabricated evidence hash are now
+        removed, and a test pins that a manifest-less repository reports no project identity.
   - id: stage_6
     title: 风险关联与变化分析
     state: COMPLETE
