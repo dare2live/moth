@@ -666,3 +666,53 @@ def test_monorepo_services_survive_entrypoint_dedup(tmp_path) -> None:
         "shares entrypoint" in w for w in (model["coverage"]["warnings"] or [])
     ), "丢弃祖先清单时必须发声, 不能静默"
 
+
+def test_double_star_truncation_marks_scan_incomplete(tmp_path) -> None:
+    """`**` 触顶必须置 incomplete —— 与字面目录分支同一处置。
+
+    2026-08-16 实测(max_depth=3): `**/*.ipynb` 漏掉 a/b/c/d/deep.ipynb 却报
+    incomplete=False, 而 `a/b/c/d/*.ipynb` 同样扫不到时报 True。同一函数对"扫不完"
+    两种处置, 结果是少扫一半且**没有任何 coverage partial 警告**。
+    生产 max_depth=6, 而 vendored 数据集正是深路径 —— 这道缺口专挑它们漏。
+    """
+    deep = tmp_path / "a" / "b" / "c" / "d"
+    deep.mkdir(parents=True)
+    (tmp_path / "top.ipynb").write_text("{}", encoding="utf-8")
+    (deep / "deep.ipynb").write_text("{}", encoding="utf-8")
+    limits = {
+        "max_depth": 3, "max_entries": 10000,
+        "max_manifest_bytes": 1048576, "excluded_directories": [],
+    }
+
+    paths, incomplete = bounded_manifest_paths(tmp_path, ["**/*.ipynb"], limits=limits)
+
+    assert incomplete is True, "扫不完必须说出来"
+    assert len(paths) == 1, "前提: 深层文件确实没被扫到"
+
+    # 反向一: 深度够用时不得误报 incomplete
+    deep_limits = dict(limits, max_depth=9)
+    paths2, incomplete2 = bounded_manifest_paths(tmp_path, ["**/*.ipynb"], limits=deep_limits)
+    assert incomplete2 is False
+    assert len(paths2) == 2
+
+
+def test_double_star_at_depth_limit_with_nothing_below_is_not_incomplete(tmp_path) -> None:
+    """触顶但**下面没有子目录** = 扫完了, 不得报 incomplete。
+
+    第一版修复照抄了字面分支的无条件置位, 结果 moth 自己(仓里没有任何超 6 层目录)
+    立刻从 PASS 变 WARN —— "到达深度上限"不等于"下面还有东西没扫", `**` 递归到上限
+    是它正常穷举的终点。修过头就成了永远喊狼来了, 与静默漏报同样有害。
+    """
+    shallow = tmp_path / "a" / "b"
+    shallow.mkdir(parents=True)
+    (shallow / "x.ipynb").write_text("{}", encoding="utf-8")
+    limits = {
+        "max_depth": 2, "max_entries": 10000,
+        "max_manifest_bytes": 1048576, "excluded_directories": [],
+    }
+
+    paths, incomplete = bounded_manifest_paths(tmp_path, ["**/*.ipynb"], limits=limits)
+
+    assert incomplete is False, "触顶处下面没有子目录, 就是扫完了"
+    assert [p.as_posix() for p in paths] == ["a/b/x.ipynb"]
+

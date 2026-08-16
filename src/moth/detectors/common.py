@@ -135,6 +135,15 @@ def bounded_manifest_paths(
         if part == "**":
             walk_pattern(current, parts[1:], relative)
             if len(relative.parts) >= max_depth:
+                # 触顶时**只有下面确实还有子目录**才算扫不完。
+                # 2026-08-16 实测(max_depth=3): `**/*.ipynb` 漏掉 a/b/c/d/deep.ipynb 却报
+                # incomplete=False —— 同一函数下方的字面目录分支遇到同样情况报 True,
+                # 两种处置意味着少扫一半还全绿, 且无任何 coverage partial 警告。
+                # 但**不能照抄字面分支无条件置位**: `**` 递归到上限是它正常穷举的终点,
+                # "到达深度上限"不等于"下面还有东西"。第一版那么改, moth 自己(仓里没有
+                # 任何超 6 层目录)立刻从 PASS 变 WARN —— 修过头就成了永远喊狼来了。
+                if any(True for _ in directory_names(current, "*")):
+                    incomplete = True
                 return
             for name in directory_names(current, "*"):
                 walk_pattern(current / name, parts, relative / name)
