@@ -91,6 +91,40 @@
     return "warn";
   }
 
+  // 术语表。屏幕上这些大写词是模型的词汇表, 不是常识 —— 看的人不该去别处查字典。
+  // 只解释**模型真的会发出**的值(取自视觉文档 schema 的枚举与 visual_model 里的字面量);
+  // 表里没有的词一律不解释: 编一个说法比留着原词更糟。
+  // tests/test_web_console.py 会拿 schema 对着这张表点名, 加了新状态而没写解释会报红。
+  const TERMS = {
+    OBSERVED: "从仓库里实际看到的结构",
+    DECLARED: "项目自己写下的目标结构",
+    NOT_DECLARED: "还没写下目标结构 —— 不是错, 是没声明",
+    PARTIAL: "只覆盖了一部分, 其余没查到",
+    CONFORMANT: "写下的和看到的一致",
+    VIOLATION: "写下的和看到的对不上",
+    UNVERIFIABLE: "证据不够, 判不了一致与否",
+    AVAILABLE: "这项检查跑过了",
+    NOT_CHECKED: "这项没查 —— 不等于没问题",
+    TOOL_UNAVAILABLE: "所需工具不在, 这项无从查起",
+    EXPECTED_REQUIRED: "目标结构要求有这个",
+    EXPECTED_FORBIDDEN: "目标结构要求没有这个",
+    UNKNOWN: "查不出来, 没有替它猜一个"
+  };
+
+  function termHint(value) {
+    return TERMS[String(value || "").toUpperCase()] || "";
+  }
+
+  /** 给一个术语挂上大白话: 有解释才加提示与虚线, 没有就原样留着。 */
+  function withTerm(element, value) {
+    const hint = termHint(value);
+    if (hint) {
+      element.title = `${value} — ${hint}`;
+      element.classList.add("term");
+    }
+    return element;
+  }
+
   function metric(label, value) {
     const wrap = node("div", null, "metric");
     wrap.append(node("dt", label), node("dd", value));
@@ -149,7 +183,10 @@
     clear(ui.evidenceBody);
     ui.evidenceTitle.textContent = entity.name;
     const meta = node("div", null, "detail-meta");
-    meta.append(node("span", entity.kind), node("span", entity.status));
+    meta.append(node("span", entity.kind), withTerm(node("span", entity.status), entity.status));
+    // 抽屉是"来这儿看明白"的地方, 大白话直接写出来, 不留给 hover。
+    const statusPlain = termHint(entity.status);
+    if (statusPlain) meta.append(node("span", statusPlain, "term-plain"));
     ui.evidenceBody.append(meta, node("p", entity.summary, "detail-summary"));
     const attributes = Object.entries(entity.attributes || {}).filter(([, value]) => value !== null && value !== "");
     if (attributes.length) {
@@ -264,7 +301,7 @@
     const row = node("article", null, "entity-row");
     const main = node("div", null, "entity-copy");
     const meta = node("div", null, "row-meta");
-    meta.append(node("span", entity.kind), node("span", entity.status));
+    meta.append(node("span", entity.kind), withTerm(node("span", entity.status), entity.status));
     main.append(meta, node("h3", entity.name), node("p", entity.summary));
     const button = node("button", "查看", "row-action");
     button.type = "button";
@@ -456,7 +493,10 @@
     const summary = architecture.summary;
     const wrap = node("section", null, "section architecture-section");
     const header = node("div", null, "section-header");
-    const stateBadge = node("span", summary.state, `text-status ${statusClass(summary.state)}`);
+    const stateBadge = withTerm(
+      node("span", summary.state, `text-status ${statusClass(summary.state)}`),
+      summary.state
+    );
     header.append(node("h2", "系统架构"), stateBadge);
     wrap.append(header);
     const states = node("div", null, "architecture-grid");
@@ -466,7 +506,11 @@
       ["一致性", summary, `${summary.counts.CONFORMANT} 符合 · ${summary.counts.VIOLATION} 冲突 · ${summary.counts.UNVERIFIABLE} 未验证`]
     ].forEach(([label, value, description]) => {
       const item = node("article", null, "architecture-state");
-      item.append(node("small", label), node("strong", value.state), node("p", description));
+      item.append(node("small", label), node("strong", value.state));
+      // 这三个词是整页最显眼的结论, 大白话就直接摆出来 —— 不藏在 hover 后面。
+      const plain = termHint(value.state);
+      if (plain) item.append(node("small", plain, "term-plain"));
+      item.append(node("p", description));
       if (value.evidence_ids?.length) item.append(evidenceButton(value.evidence_ids));
       states.append(item);
     });

@@ -6,6 +6,7 @@ from wsgiref.util import setup_testing_defaults
 
 import json
 import os
+import re
 import subprocess
 import pytest
 import yaml
@@ -1009,3 +1010,42 @@ def test_failed_inspection_leaves_a_traceback_on_the_server(tmp_path, capsys) ->
     assert "INSPECTION_FAILED failed" in captured.err
     assert "visual document failed validation" in captured.err
     assert "Traceback" in captured.err
+
+
+def test_every_document_state_word_has_a_plain_language_explanation() -> None:
+    """schema 里的每个状态词, 前端术语表都得有一句大白话。
+
+    这些大写词(CONFORMANT / NOT_DECLARED / UNVERIFIABLE…)是模型的词汇表, 不是常识。
+    控制台服务的是照着它学项目结构的人 —— 屏幕上蹦出一个没解释的词, 等于让人去查字典,
+    而字典并不存在。加了新状态却忘了写解释, 这条会报红。
+
+    反过来不强制对称: 术语表里可以有 schema 之外的词(PASS/WARN 之类的裁决值),
+    多解释不伤人, 少解释才伤人。
+    """
+    schema = json.loads(
+        (
+            PROJECT_ROOT / "src" / "moth" / "schemas" / "moth.visual-document.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    app_js = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.js").read_text(encoding="utf-8")
+
+    body = app_js.split("const TERMS = {", 1)[1].split("};", 1)[0]
+    explained = set(re.findall(r"^\s*([A-Z][A-Z_]+)\s*:", body, flags=re.MULTILINE))
+    assert explained, "术语表没解析出任何词 —— 先修这个用例, 别让它假绿"
+
+    declared: set[str] = set()
+
+    def collect(node: object) -> None:
+        if isinstance(node, dict):
+            values = node.get("enum")
+            if isinstance(values, list):
+                declared.update(v for v in values if isinstance(v, str) and v.isupper())
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    collect(schema)
+    assert declared, "schema 里没抽出状态词 —— 结构变了, 这个用例需要跟着改"
+    assert declared <= explained, f"这些状态会原样出现在屏幕上却没有解释: {sorted(declared - explained)}"

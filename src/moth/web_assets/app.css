@@ -110,6 +110,11 @@ main { min-width: 0; padding: 28px 34px 64px; }
 
 .flow-row { padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .flow-row + .flow-row { margin-top: 7px; }
+/* 术语: 虚线下划线示意"这词有解释", 鼠标停上去给大白话。 */
+.term { border-bottom: 1px dotted currentColor; cursor: help; }
+.term-plain { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.4; font-weight: 400; }
+.detail-meta .term-plain { display: inline; margin-top: 0; }
+
 /* 步骤条: 横向读作一条链。窄屏时自己横向滚动, 不把外层撑破。 */
 .flow-strip { display: flex; align-items: stretch; gap: 0; margin: 12px 0 4px; padding: 0 0 6px; list-style: none; overflow-x: auto; }
 .flow-step { display: flex; align-items: center; flex: 0 0 auto; }
