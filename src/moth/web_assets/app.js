@@ -434,6 +434,15 @@
       label.textContent = name.length > maxChars ? name.slice(0, maxChars - 1) + "…" : name;
       const title = document.createElementNS(ns, "title");
       title.textContent = `${e.name || e.id}\n${e.kind || ""}\n${e.responsibility || ""}`;
+      // 点节点 -> 复用既有的实体详情抽屉(kind / 职责 / 属性 / 证据)。
+      // 这是"图上看见"到"知道在哪个文件"的桥 —— 没有它, 图停在好看但学不到。
+      // 不另造面板: openEntity 已经在做同一件事, 多一个面板就是多一份会漂的实现。
+      // e 就是 doc.entities 里那个对象(itemsById 直接取的引用), 不再二次查表:
+      // 多一次查表就多一条"查不到就静默什么都不做"的分支。
+      g.addEventListener("click", () => openEntity(e));
+      g.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openEntity(e); }
+      });
       g.append(rect, label, title);
       svg.append(g);
     });

@@ -533,3 +533,29 @@ def test_architecture_diagram_layering_is_deterministic_and_terminates() -> None
     # 确定性: 同样输入两次结果一致
     assert assign(["a", "b", "c"], [("a", "b")]) == assign(["a", "b", "c"], [("a", "b")])
 
+
+def test_diagram_nodes_resolve_to_an_entity_that_carries_evidence() -> None:
+    """图上的每个节点都必须能点开, 并且点开后有证据可看。
+
+    架构图的节点 id 取自 ``architecture.as_is.entity_ids``, 点击时直接用同一个对象
+    打开实体抽屉。所以有两条前提必须成立, 否则"图上看见 -> 知道在哪个文件"这座桥断在半路:
+      1. 每个 entity_id 都能在 ``entities`` 里查到 —— 查不到的节点点了没反应;
+      2. 查到的实体带 evidence_ids —— 空证据的抽屉等于告诉人"就这样, 自己找去"。
+
+    大项目会按 entities_per_layer 截断引用列表, 截断**不能**留下悬空 id。
+    """
+    truncated = inspection_fixture()
+    template = truncated["snapshot"]["project_model"]["applications"][0]
+    truncated["snapshot"]["project_model"]["applications"] = [
+        {**template, "id": f"application:{index}", "name": f"application-{index}"}
+        for index in range(10_000)
+    ]
+
+    for label, inspection in (("baseline", inspection_fixture()), ("truncated", truncated)):
+        model = build_visual_model(inspection)
+        entity_ids = model["architecture"]["as_is"]["entity_ids"]
+        assert entity_ids, f"{label}: 架构没有任何实体, 这个用例就白跑了"
+        for entity_id in entity_ids:
+            entity = model["entities"].get(entity_id)
+            assert entity is not None, f"{label}: 架构引用了不存在的实体 {entity_id}, 节点点不开"
+            assert entity.get("evidence_ids"), f"{label}: {entity_id} 没有证据, 点开是空抽屉"
