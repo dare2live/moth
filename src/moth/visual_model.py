@@ -612,6 +612,12 @@ _TOOLING_MESSAGE_MARKERS = (
     "baseline unavailable",
     "safe view disabled",
     "guidance",
+    # "bounded filesystem scan was incomplete" = **Moth 自己的扫描预算**(max_depth/
+    # max_entries)触顶, 不是项目的毛病。读者看到"bounded filesystem scan"既看不懂也
+    # 无从下手。刻意只收这一条: 同批 coverage 消息里
+    # "requires-python is unavailable without pyproject.toml"(清单缺字段)与
+    # "requirements-ci.txt shares entrypoint"(项目结构)说的都是项目, 必须留在主列表。
+    "bounded filesystem scan",
 )
 
 

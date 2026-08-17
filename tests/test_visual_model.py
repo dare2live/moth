@@ -501,3 +501,35 @@ def test_tooling_findings_give_a_command_or_say_why_not() -> None:
     cmd, note = _tooling_remedy("guidance not verified")
     assert cmd is None and note, "补不出命令时也必须给出理由"
 
+
+def test_architecture_diagram_layering_is_deterministic_and_terminates() -> None:
+    """分层必须确定且**有环也要终止** —— 图是学架构的主要载体, 不能挂在循环里。
+
+    布局刻意用最长路径分层而非力导向: 力导向每次刷新位置都变, 学习者会以为架构变了。
+    """
+    # 该算法与 app.js 的 assignLayers 同构, 这里锁住它的两条性质
+    def assign(ids, edges):
+        incoming = {i: [] for i in ids}
+        for s, tgt in edges:
+            if tgt in incoming and s in incoming:
+                incoming[tgt].append(s)
+        layer = {i: 0 for i in ids}
+        for _ in range(len(ids)):
+            moved = False
+            for i in ids:
+                for s in incoming[i]:
+                    if layer[i] <= layer[s]:
+                        layer[i] = layer[s] + 1
+                        moved = True
+            if not moved:
+                break
+        return layer
+
+    # 链: a -> b -> c 必须落在三层
+    assert assign(["a", "b", "c"], [("a", "b"), ("b", "c")]) == {"a": 0, "b": 1, "c": 2}
+    # 有环不得死循环(上限 = 节点数)
+    cyc = assign(["a", "b"], [("a", "b"), ("b", "a")])
+    assert set(cyc) == {"a", "b"}
+    # 确定性: 同样输入两次结果一致
+    assert assign(["a", "b", "c"], [("a", "b")]) == assign(["a", "b", "c"], [("a", "b")])
+

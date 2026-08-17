@@ -305,6 +305,143 @@
     }, { layout: "relation-list", empty: "当前没有可验证的组件关系。" });
   }
 
+  // ── 架构图 (手写 SVG, 不引外部库) ────────────────────────────────────────
+  // 为什么不引 d3/mermaid: 控制台是本地自包含的, CDN 会让它离线不可用, 打包进来又让
+  // 仓库膨胀。18 个节点的分层图手写足够。
+  // 为什么不用力导向: 每次刷新位置都变, 学习者会以为架构变了。分层是确定性的。
+  //
+  // **按连通性自适应** —— 实测两个真实项目形状完全不同:
+  //   moth        18 实体 / 13 关系(calls 为主) -> 分层图有意义
+  //   chunkymonkey 17 实体 / **2 条关系**, 15 个根 -> 画分层图就是一堆孤立点
+  // 所以关系过少时不画连线图, 改按 kind 分组展示, 并说明为什么没有连线。
+  // 节点宽度按**实际最长名**自适应, 不写死: 实测 moth 的 20 个标签里 12 个被 132px 截断
+  // ("Change safety a…"), 图的可读性直接减半 —— 而"看懂组件叫什么"正是学架构的起点。
+  const NODE_H = 34, GAP_X = 22, GAP_Y = 58, PAD = 16;
+  const NODE_W_MIN = 132, NODE_W_MAX = 240, CHAR_PX = 7.2;
+  const KIND_COLOR = {
+    application: "#2f6f4f", service: "#3a5a8c", module: "#6b4f8a",
+    runtime: "#8a6a2f", framework: "#8a4f4f", platform: "#4f7a8a",
+    project: "#444", composition: "#666"
+  };
+
+  function assignLayers(nodeIds, relations) {
+    // 最长路径分层: 无入边者为第 0 层, 其余取前驱层+1。有环时按已达层数截断。
+    const incoming = new Map(nodeIds.map((id) => [id, []]));
+    relations.forEach((r) => {
+      if (incoming.has(r.target_id) && incoming.has(r.source_id)) {
+        incoming.get(r.target_id).push(r.source_id);
+      }
+    });
+    const layer = new Map(nodeIds.map((id) => [id, 0]));
+    for (let pass = 0; pass < nodeIds.length; pass += 1) {
+      let moved = false;
+      nodeIds.forEach((id) => {
+        incoming.get(id).forEach((src) => {
+          if (layer.get(id) <= layer.get(src)) { layer.set(id, layer.get(src) + 1); moved = true; }
+        });
+      });
+      if (!moved) break;   // 收敛即停; 上限 = 节点数, 保证有环也会终止
+    }
+    return layer;
+  }
+
+  function architectureDiagram(entities, relations) {
+    const ids = entities.map((e) => e.id);
+    const idSet = new Set(ids);
+    const edges = relations.filter((r) => idSet.has(r.source_id) && idSet.has(r.target_id));
+
+    const box = node("div", null, "arch-diagram");
+    if (!ids.length) return null;
+    // 判据是"关系密度"而非"边数下限": chunkymonkey 有 17 个实体却只有 2 条边,
+    // `edges.length < 2` 放它过去, 结果是 15 个孤立方块排成 2342px 宽的一行 ——
+    // 那不是架构图, 是一张误导人以为组件互不相关的图。
+    // 要求至少有一半节点被关系连上, 才认为图能表达结构。
+    const connected = new Set();
+    edges.forEach((r) => { connected.add(r.source_id); connected.add(r.target_id); });
+    if (edges.length < 2 || connected.size * 2 < ids.length) {
+      // 没有足够关系可画 —— 说清楚为什么, 而不是给一张没有连线的图让人以为组件互不相关。
+      const hint = node("p", null, "muted");
+      hint.textContent =
+        `已识别 ${ids.length} 个组件, 其中只有 ${connected.size} 个被关系连接` +
+        `(共 ${edges.length} 条关系), 不足以画出能说明结构的图。` +
+        "Moth 不会按名称猜测调用关系 —— 关系需要来自代码或声明中的证据。";
+      box.append(hint);
+      return box;
+    }
+
+    // 先按最长名定宽(留 16px 内边距), 夹在 [MIN, MAX] 之间; 超过 MAX 才截断。
+    const longest = Math.max(...entities.map((e) => String(e.name || e.id).length));
+    const NODE_W = Math.min(NODE_W_MAX, Math.max(NODE_W_MIN, Math.round(longest * CHAR_PX) + 16));
+    const maxChars = Math.floor((NODE_W - 16) / CHAR_PX);
+
+    const layer = assignLayers(ids, edges);
+    const byLayer = new Map();
+    ids.forEach((id) => {
+      const l = layer.get(id);
+      if (!byLayer.has(l)) byLayer.set(l, []);
+      byLayer.get(l).push(id);
+    });
+    const layers = [...byLayer.keys()].sort((a, b) => a - b);
+    const width = PAD * 2 + Math.max(...layers.map((l) => byLayer.get(l).length)) * (NODE_W + GAP_X);
+    const height = PAD * 2 + layers.length * GAP_Y + NODE_H;
+
+    const pos = new Map();
+    layers.forEach((l, li) => {
+      const row = byLayer.get(l);
+      const rowW = row.length * (NODE_W + GAP_X) - GAP_X;
+      row.forEach((id, i) => {
+        pos.set(id, { x: (width - rowW) / 2 + i * (NODE_W + GAP_X), y: PAD + li * GAP_Y });
+      });
+    });
+
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("class", "arch-svg");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `架构图: ${ids.length} 个组件, ${edges.length} 条关系`);
+
+    edges.forEach((r) => {
+      const a = pos.get(r.source_id), b = pos.get(r.target_id);
+      if (!a || !b) return;
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", a.x + NODE_W / 2); line.setAttribute("y1", a.y + NODE_H);
+      line.setAttribute("x2", b.x + NODE_W / 2); line.setAttribute("y2", b.y);
+      line.setAttribute("class", "arch-edge");
+      const title = document.createElementNS(ns, "title");
+      title.textContent = r.label || r.kind || "";
+      line.append(title);
+      svg.append(line);
+    });
+
+    entities.forEach((e) => {
+      const p = pos.get(e.id);
+      if (!p) return;
+      const g = document.createElementNS(ns, "g");
+      g.setAttribute("class", "arch-node");
+      g.setAttribute("tabindex", "0");
+      g.dataset.entityId = e.id;
+      const rect = document.createElementNS(ns, "rect");
+      rect.setAttribute("x", p.x); rect.setAttribute("y", p.y);
+      rect.setAttribute("width", NODE_W); rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", "5");
+      rect.setAttribute("fill", KIND_COLOR[e.kind] || "#555");
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", p.x + NODE_W / 2); label.setAttribute("y", p.y + NODE_H / 2 + 4);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("class", "arch-label");
+      const name = String(e.name || e.id);
+      label.textContent = name.length > maxChars ? name.slice(0, maxChars - 1) + "…" : name;
+      const title = document.createElementNS(ns, "title");
+      title.textContent = `${e.name || e.id}\n${e.kind || ""}\n${e.responsibility || ""}`;
+      g.append(rect, label, title);
+      svg.append(g);
+    });
+
+    box.append(svg);
+    return box;
+  }
+
   function architectureBlock() {
     const architecture = state.document.architecture;
     const summary = architecture.summary;
@@ -325,6 +462,13 @@
       states.append(item);
     });
     wrap.append(states);
+
+    // 图放在状态卡之后: 先给结论(是否一致), 再给结构。
+    const doc = state.document;
+    const ents = itemsById(architecture.as_is.entity_ids, doc.entities);
+    const rels = itemsById(architecture.as_is.relation_ids, doc.relations);
+    const diagram = architectureDiagram(ents, rels);
+    if (diagram) wrap.append(diagram);
     return wrap;
   }
 

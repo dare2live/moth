@@ -220,3 +220,11 @@ dialog::backdrop { background: rgba(17, 27, 22, .48); }
 .tooling-selfcheck { margin: 18px 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .tooling-selfcheck summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .tooling-selfcheck[open] summary { margin-bottom: 10px; }
+
+/* 架构图: 手写 SVG, 确定性分层布局 */
+.arch-diagram { margin-top: 16px; overflow-x: auto; }
+.arch-svg { width: 100%; height: auto; max-height: 520px; }
+.arch-edge { stroke: var(--line); stroke-width: 1.4; }
+.arch-node { cursor: pointer; }
+.arch-node:hover rect, .arch-node:focus rect { stroke: var(--ink); stroke-width: 2; }
+.arch-label { fill: #fff; font-size: 11px; pointer-events: none; }
