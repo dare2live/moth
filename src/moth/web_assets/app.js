@@ -488,12 +488,27 @@
     );
     row.append(node("h3", entity.name), node("p", entity.summary));
     if (steps.length) {
-      const list = node("ol", null, "flow-steps");
-      steps.forEach((step) => {
-        const target = state.document.entities[step.target_id]?.name || step.target_id;
-        list.append(node("li", `${step.label} · ${target}`));
+      // 顺序取模型给的 order, 不靠数组下标 —— 文档输出前 relations 按 id 排过序。
+      steps.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      // 横排的步骤条: 一眼看出"先干什么、再干什么、各由谁干",
+      // 竖排列表读起来是一堆并列的句子, 看不出这是一条链。
+      const strip = node("ol", null, "flow-strip");
+      steps.forEach((step, index) => {
+        const target = state.document.entities[step.target_id];
+        const item = node("li", null, "flow-step");
+        const card = node("button", null, "flow-step-card quiet");
+        card.append(
+          node("span", String(step.order ?? index + 1), "flow-step-no"),
+          node("span", step.label, "flow-step-action"),
+          node("span", target?.name || step.target_id, "flow-step-actor")
+        );
+        // 点某一步 -> 打开执行它的那个组件, 与架构图节点是同一座桥。
+        if (target) card.addEventListener("click", () => openEntity(target));
+        else card.disabled = true;
+        item.append(card);
+        strip.append(item);
       });
-      row.append(list);
+      row.append(strip);
     }
     row.append(evidenceButton(entity.evidence_ids));
     return row;
