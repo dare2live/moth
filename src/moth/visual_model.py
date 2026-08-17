@@ -615,6 +615,33 @@ _TOOLING_MESSAGE_MARKERS = (
 )
 
 
+# 工具内务的修复命令。这些条目的正确答案就是"跑一条命令", 而通用文案
+# ("打开对应证据, 用最小只读检查确认真实状态")对它们等于没说 —— 读者看不懂
+# 也无从下手。给不出命令的必须诚实说明为什么, 不能编一条看着像的。
+_TOOLING_REMEDIES = (
+    ("codegraph", "codegraph sync <项目路径>", "索引没建或已过期, 重新同步即可。"),
+    ("complexity baseline", "moth complexity <项目路径> --write-baseline",
+     "首次需要写一份复杂度基线, 之后才能比较增量。"),
+    ("baseline unavailable", "moth complexity <项目路径> --write-baseline",
+     "首次需要写一份复杂度基线, 之后才能比较增量。"),
+    ("safe view disabled", None,
+     "这是 Moth 的安全策略: 只读视图不执行仓库自配的可执行文件。"
+     "不是故障, 也不该为看报告而关掉它。"),
+    ("guidance", None,
+     "协作上下文需要由可信执行器激活并留下回执, 无法用一条命令补。"),
+)
+
+
+def _tooling_remedy(message: str) -> tuple[str | None, str]:
+    """返回 (可复制的命令 | None, 一句人话说明)。"""
+
+    low = str(message or "").lower()
+    for marker, command, note in _TOOLING_REMEDIES:
+        if marker in low:
+            return command, note
+    return None, "这是 Moth 自身的前置状态, 与你的项目无关。"
+
+
 def _message_origin(message: str) -> str:
     low = str(message or "").lower()
     return ORIGIN_TOOLING if any(m in low for m in _TOOLING_MESSAGE_MARKERS) else ORIGIN_PROJECT
@@ -640,9 +667,17 @@ def _build_findings(
             f"inspection:{finding_id}",
             message,
         )
+        origin = _message_origin(message)
+        if origin == ORIGIN_TOOLING:
+            command, note = _tooling_remedy(message)
+            # 保留 <项目路径> 占位而不是穿透仓路径进来: project_model/snapshot 都不带它,
+            # 为一个占位符改函数签名不值得(奥卡姆), 而读者从项目选择器就知道自己选的是哪个目录。
+            step = f"在项目目录下运行: {command}" if command else note
+        else:
+            step = "打开对应证据，用最小只读检查确认真实状态。"
         findings[finding_id] = _finding(
             finding_id,
-            origin=_message_origin(message),
+            origin=origin,
             title="检查发现问题" if issue else "检查覆盖仍不完整",
             severity="high" if issue else "medium",
             confidence="high",
@@ -653,7 +688,7 @@ def _build_findings(
                 if issue
                 else "未覆盖区域不能被当作已经确认安全。"
             ],
-            safest_step="打开对应证据，用最小只读检查确认真实状态。",
+            safest_step=step,
             avoid=["不要删除门禁、放宽断言或把未知状态改写成通过。"],
             evidence_ids=[evidence_id],
             layer_ids=["overview", "evidence"],
@@ -728,7 +763,7 @@ def _build_findings(
             action_bucket="now",
             why="陈旧索引不能支撑可靠的依赖与影响判断。",
             impact=["受影响模块和测试可能被漏报。"],
-            safest_step="刷新索引并再次确认 freshness。",
+            safest_step="在项目目录下运行: codegraph sync <项目路径>",
             avoid=["不要用陈旧索引批准架构或删除变更。"],
             evidence_ids=[evidence_id],
             layer_ids=["code", "evidence"],

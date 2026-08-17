@@ -478,3 +478,26 @@ def test_tooling_prerequisites_are_not_filed_as_project_problems() -> None:
     assert _message_origin("complexity hotspots: 4 findings (4 high)") == ORIGIN_PROJECT
     assert _message_origin("project coverage unavailable: no supported manifest") == ORIGIN_PROJECT
 
+
+def test_tooling_findings_give_a_command_or_say_why_not() -> None:
+    """工具内务的正确答案是"跑一条命令" —— 通用文案对它们等于没说。
+
+    但**给不出命令的必须诚实说明为什么**, 不能编一条看着像的:
+    safe view 是 Moth 的安全策略(不该为看报告而关掉),
+    guidance 需要可信执行器激活(补不出一条命令)。
+    """
+    from moth.visual_model import _tooling_remedy
+
+    cmd, _ = _tooling_remedy("codegraph: not initialized")
+    assert cmd and "codegraph sync" in cmd
+
+    cmd, _ = _tooling_remedy("complexity baseline unavailable: ...")
+    assert cmd and "--write-baseline" in cmd
+
+    cmd, note = _tooling_remedy("safe view disabled repository-configured executables")
+    assert cmd is None, "安全策略不得给出'修复'命令"
+    assert "安全策略" in note
+
+    cmd, note = _tooling_remedy("guidance not verified")
+    assert cmd is None and note, "补不出命令时也必须给出理由"
+

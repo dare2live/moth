@@ -207,6 +207,44 @@
     return box;
   }
 
+  // 首屏一句话: 讲**项目**, 不讲工具。原文案"根据当前仓库代码、清单和项目文档即时生成"
+  // 是工具在自我介绍, 对想了解项目的人零信息量。
+  // 只拼已观察到的字段, **不新增任何推断** —— 每个断言都能指回 runtimes / applications /
+  // modules / architecture, 说不出来的部分就不说。
+  const RUNTIME_LABEL = { python: "Python", nodejs: "Node.js", swift: "Swift", java: "Java" };
+  const APP_LABEL = {
+    python_api: "后端 API", python_console_script: "命令行工具",
+    python_web_application: "Python Web 应用", web_application: "前端应用",
+    static_web_application: "静态站点"
+  };
+
+  function projectOneLiner(model) {
+    const parts = [];
+    const runtimes = (model.runtimes || []).map((r) => RUNTIME_LABEL[r.id] || r.id);
+    if (runtimes.length) parts.push(runtimes.join(" + ") + " 项目");
+
+    const apps = model.applications || [];
+    if (apps.length) {
+      const kinds = [...new Set(apps.map((a) => APP_LABEL[a.subtype] || a.subtype))];
+      parts.push(`${apps.length} 个应用入口(${kinds.join("、")})`);
+    }
+    const mods = (model.modules || []).length;
+    if (mods) parts.push(`${mods} 个模块`);
+
+    // 架构声明状态只在**已经识别出结构**时才提。对一个连清单都没有的目录说
+    // "尚未声明目标架构", 会把读者引向错误的下一步(去写架构声明), 而它真正缺的是清单。
+    if (parts.length) {
+      const arch = model.architecture || {};
+      const drift = (arch.drift || {}).state;
+      if (arch.declaration_state === "DECLARED") {
+        parts.push(drift === "CONFORMANT" ? "架构声明与实际一致" : "架构声明与实际存在差异");
+      } else if (arch.declaration_state === "NOT_DECLARED") {
+        parts.push("尚未声明目标架构");
+      }
+    }
+    return parts.length ? parts.join(" · ") : "";
+  }
+
   function section(title, items, renderer, options = {}) {
     const wrap = node("section", null, `section ${options.className || ""}`.trim());
     const header = node("div", null, "section-header");
@@ -328,7 +366,9 @@
     activateNavigation("home");
     ui.kicker.textContent = profileLabel(state.payload.project.profile_state);
     ui.title.textContent = state.payload.project.name;
-    ui.sectionSummary.textContent = doc.identity.description || "根据当前仓库代码、清单和项目文档即时生成。";
+    ui.sectionSummary.textContent =
+      projectOneLiner(model) || doc.identity.description ||
+      "这个目录里没有可识别的项目结构 —— 详见下方说明。";
     clear(ui.primary);
 
     const applications = itemsById((model.applications || []).map((item) => item.id), doc.entities);
