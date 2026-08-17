@@ -96,11 +96,17 @@
   // 表里没有的词一律不解释: 编一个说法比留着原词更糟。
   // tests/test_web_console.py 会拿 schema 对着这张表点名, 加了新状态而没写解释会报红。
   const TERMS = {
-    OBSERVED: "从仓库里实际看到的结构",
+    // 措辞按 2026-08-17 的实测改过: 此前写"从仓库里实际看到的结构", 而实测本仓 18 个对象里
+    // 15 个只存在于 .moth/architecture.yaml —— 那句话把"读来的"说成了"看到的"。
+    OBSERVED: "至少有一部分是扫描出来的 —— 具体几个看下面的来源拆分",
+    DECLARED_ONLY: "全部来自项目手写的声明文件, 没有一个是扫描出来的",
     DECLARED: "项目自己写下的目标结构",
     NOT_DECLARED: "还没写下目标结构 —— 不是错, 是没声明",
+    NOT_OBSERVED: "既没扫到, 也没声明",
     PARTIAL: "只覆盖了一部分, 其余没查到",
     CONFORMANT: "写下的和看到的一致",
+    DETECTED: "扫描代码或清单文件读出来的",
+    CONFIRMED: "声明里写了, 扫描也独立看到了",
     VIOLATION: "写下的和看到的对不上",
     UNVERIFIABLE: "证据不够, 判不了一致与否",
     AVAILABLE: "这项检查跑过了",
@@ -488,6 +494,32 @@
     return box;
   }
 
+  // "当前结构"这张卡最容易骗人: 它可以是一份人手写的 yaml, 却读起来像扫描结果。
+  // 所以对象数后面必须跟上来源拆分 —— 有几个是真扫到的, 有几个只是被声明过。
+  function provenanceLine(asIs) {
+    const counts = asIs.entity_ids.length + asIs.relation_ids.length;
+    const base = `${asIs.entity_ids.length} 个对象，${asIs.relation_ids.length} 条关系`;
+    const p = asIs.provenance;
+    if (!p || !counts) return base;
+    const parts = [];
+    if (p.detected) parts.push(`${p.detected} 个扫描到`);
+    if (p.confirmed) parts.push(`${p.confirmed} 个声明且被证实`);
+    if (p.declared) parts.push(`${p.declared} 个只来自声明文件`);
+    return parts.length ? `${base}（${parts.join("，")}）` : base;
+  }
+
+  // "写下的和看到的一致"只有在"看到的"确实是看到的时候才成立。
+  // 当前结构里若绝大多数对象本身就来自那份声明文件, 这场比对就是声明与自己对照,
+  // 永远 CONFORMANT —— 不说破的话, 这个绿色会被当成"架构没漂"的证据。
+  function driftLine(summary, asIs) {
+    const base = `${summary.counts.CONFORMANT} 符合 · ${summary.counts.VIOLATION} 冲突 · ${summary.counts.UNVERIFIABLE} 未验证`;
+    const p = asIs.provenance;
+    if (!p) return base;
+    const total = p.detected + p.declared + p.confirmed;
+    if (!total || p.declared * 2 <= total) return base;
+    return `${base} —— 但当前结构里 ${p.declared}/${total} 本身来自这份声明, 这一栏多半是声明在跟自己比`;
+  }
+
   function architectureBlock() {
     const architecture = state.document.architecture;
     const summary = architecture.summary;
@@ -501,9 +533,9 @@
     wrap.append(header);
     const states = node("div", null, "architecture-grid");
     [
-      ["当前结构", architecture.as_is, `${architecture.as_is.entity_ids.length} 个对象，${architecture.as_is.relation_ids.length} 条关系`],
+      ["当前结构", architecture.as_is, provenanceLine(architecture.as_is)],
       ["目标结构", architecture.to_be, architecture.to_be.state === "DECLARED" ? `${architecture.to_be.entity_ids.length} 个对象` : "项目尚未声明 To-Be"],
-      ["一致性", summary, `${summary.counts.CONFORMANT} 符合 · ${summary.counts.VIOLATION} 冲突 · ${summary.counts.UNVERIFIABLE} 未验证`]
+      ["一致性", summary, driftLine(summary, architecture.as_is)]
     ].forEach(([label, value, description]) => {
       const item = node("article", null, "architecture-state");
       item.append(node("small", label), node("strong", value.state));

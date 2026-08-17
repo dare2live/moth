@@ -31,11 +31,23 @@ from pathlib import Path
 from typing import Any
 
 
-def _module_name_for(path: Path, root: Path) -> str:
+def _module_name_for(path: Path, root: Path, package_prefix: str = "") -> str:
+    """算出一个文件的**真** import 名, 而不是它的路径。
+
+    2026-08-17 实测的坑: src-layout 仓(``src/moth/…``)下, 按路径拼出来的名字是
+    ``src.moth.report``, 而源码里写的是 ``from moth.report import …`` —— 图的节点名与边的
+    目标名分属两套命名, 于是一条边都连不上。moth 对自己跑 ``moth cycles`` 得到
+    module_count=62 / edge_count=0 / verdict=PASS, 一道**假绿**的门, 任何 src 布局都会中。
+
+    规则: 从路径里 package_prefix 第一次出现的那一段起算 —— 那才是包根。
+    找不到 package_prefix 时退回旧的按路径拼(flat-layout 下二者本就一致)。
+    """
     rel = path.relative_to(root).with_suffix("")
     parts = list(rel.parts)
     if parts and parts[-1] == "__init__":
         parts = parts[:-1]
+    if package_prefix and package_prefix in parts:
+        parts = parts[parts.index(package_prefix):]
     return ".".join(parts)
 
 
@@ -68,7 +80,7 @@ def _import_targets_for_node(node: ast.AST, module_name: str, package_prefix: st
 def _collect_imports(
     path: Path, root: Path, scan_modules: set[str], package_prefix: str
 ) -> tuple[str, set[str]]:
-    module_name = _module_name_for(path, root)
+    module_name = _module_name_for(path, root, package_prefix)
     targets: set[str] = set()
     try:
         tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
@@ -89,7 +101,13 @@ def _build_module_graph(
 ) -> tuple[dict[str, set[str]], list[str]]:
     module_roots = [base / entry for entry in scan_paths if (base / entry).is_dir()]
     missing = [entry for entry in scan_paths if not (base / entry).is_dir()]
-    scan_modules = {".".join((root_dir.relative_to(base)).parts) for root_dir in module_roots}
+    # 用**真包名**当扫描前缀。此前这里是按目录路径拼(src/moth -> "src.moth"),
+    # 和源码里写的 "moth.xxx" 对不上, 结果整张图被前缀过滤清空(见 _module_name_for 的注释)。
+    scan_modules = {
+        _module_name_for(root_dir / "__init__.py", base, package_prefix)
+        or ".".join(root_dir.relative_to(base).parts)
+        for root_dir in module_roots
+    }
     files = [path for root_dir in module_roots for path in sorted(root_dir.rglob("*.py"))]
 
     graph: dict[str, set[str]] = {}

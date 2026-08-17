@@ -23,6 +23,19 @@ def _write_python_manifest(repo: Path) -> None:
     )
 
 
+def _write_declared_sources(repo: Path, *relative_paths: str) -> None:
+    """把声明里 current 段 locator 指到的文件真的建出来。
+
+    current(当前结构)声明的是**已经存在**的东西, 所以它的 locator 必须指向真实文件 ——
+    否则那是一条编造的架构。这条约束由 _validate_current_locators 执法, fixture 要么满足它,
+    要么就是在测一个本就不该通过的声明。
+    """
+    for relative in relative_paths:
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("", encoding="utf-8")
+
+
 def _write_architecture(repo: Path, payload: dict) -> None:
     target = repo / ".moth"
     target.mkdir()
@@ -107,6 +120,7 @@ def test_declaration_adds_real_flows_states_and_evidence_backed_drift(
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
     _write_architecture(
         tmp_path,
         {
@@ -239,6 +253,7 @@ def test_declaration_adds_real_flows_states_and_evidence_backed_drift(
 
 def test_invalid_architecture_reference_fails_closed(tmp_path: Path) -> None:
     _write_python_manifest(tmp_path)
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
     _write_architecture(
         tmp_path,
         {
@@ -286,6 +301,7 @@ def test_invalid_architecture_reference_fails_closed(tmp_path: Path) -> None:
 
 def test_architecture_evidence_cannot_escape_repository(tmp_path: Path) -> None:
     _write_python_manifest(tmp_path)
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
     _write_architecture(
         tmp_path,
         {
@@ -394,3 +410,200 @@ def test_observed_forbidden_subject_is_confirmed_drift_even_if_incomplete() -> N
     assert result["state"] == "DRIFT_DETECTED"
     assert result["violation_ids"] == ["entity:service:forbidden"]
     assert result["findings"][0]["observation_evidence_ids"] == ["observation"]
+
+
+def test_declared_and_detected_entities_are_told_apart(tmp_path: Path) -> None:
+    """声明来的和检测来的必须分得开, 而且"当前结构"不能把一份手写 yaml 说成扫描结果。
+
+    2026-08-17 实测: moth 自己 18 个实体里 15 个、13 条关系里 12 条只存在于
+    .moth/architecture.yaml, 移走该文件后 as_is 只剩 3 实体 / 1 关系 —— 但界面上
+    声明来的实体与检测来的实体标着**完全相同**的 OBSERVED, 区分不出来。
+    """
+    _write_python_manifest(tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [
+                {
+                    "id": "architecture-doc",
+                    "kind": "architecture_document",
+                    "path": "docs/architecture.md",
+                }
+            ],
+            "current": {
+                "complete": False,
+                "entities": [
+                    {
+                        "id": "service:inspection",
+                        "kind": "service",
+                        "name": "Inspection service",
+                        "responsibility": "Only this file says it exists.",
+                        "locator": "src/moth/inspection.py",
+                        "evidence_ids": ["architecture-doc"],
+                    }
+                ],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+    by_id = {item["id"]: item for item in model["entities"]}
+
+    # 只在声明里出现的
+    assert by_id["service:inspection"]["source"] == "DECLARED"
+    # 检测器从 pyproject.toml 读出来的
+    assert by_id["python:sample"]["source"] == "DETECTED"
+    assert by_id["python-console:sample"]["source"] == "DETECTED"
+
+    provenance = model["architecture"]["current"]["provenance"]
+    assert provenance["declared"] == 1
+    assert provenance["detected"] >= 2
+    # 有检测器实际看到的东西, 所以 OBSERVED 名副其实
+    assert model["architecture"]["current"]["state"] == "OBSERVED"
+
+
+def test_architecture_built_only_from_a_declaration_does_not_claim_to_be_observed() -> None:
+    """全靠声明拼出来的结构不叫"观察到的"。
+
+    这是上一条的极端情形: 检测器一个实体都没产出(没有 pyproject.toml 之类的清单),
+    结构 100% 来自人手写。此时说 OBSERVED 就是把"你告诉我的"说成"我看到的"。
+    """
+    from moth.architecture_model import _provenance_counts
+
+    declared_entity = {"id": "service:x", "source": "DECLARED"}
+    counts = _provenance_counts([declared_entity], [], [], [])
+    assert counts == {"detected": 0, "declared": 1, "confirmed": 0}
+
+    # flows 与 state_machines 无条件算声明 —— 没有任何检测器产出这两样
+    counts = _provenance_counts([], [], [{"id": "flow:a"}], [{"id": "sm:a"}])
+    assert counts["declared"] == 2
+    assert counts["detected"] == 0
+
+
+def test_current_locator_must_point_at_a_file_that_exists(tmp_path: Path) -> None:
+    """声明当前结构时写的 locator 必须真的存在, 否则那是一条编造的架构。
+
+    2026-08-17 实测(修复前): 插一个 locator 指向 THIS_FILE_DOES_NOT_EXIST.py、职责写着
+    "这个组件不存在于代码库任何地方"的实体, build_project_model 给 verdict=PASS、
+    issues 为空, 所有门全绿 —— 这个工具当时可以显示一整张虚构的架构图而无人拦。
+    """
+    _write_python_manifest(tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [
+                {
+                    "id": "architecture-doc",
+                    "kind": "architecture_document",
+                    "path": "docs/architecture.md",
+                }
+            ],
+            "current": {
+                "complete": False,
+                "entities": [
+                    {
+                        "id": "service:totally-made-up",
+                        "kind": "service",
+                        "name": "Fabricated service",
+                        "responsibility": "This component does not exist anywhere.",
+                        "locator": "src/moth/THIS_FILE_DOES_NOT_EXIST.py",
+                        "evidence_ids": ["architecture-doc"],
+                    }
+                ],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert model["verdict"] == "FAIL"
+    assert model["architecture"]["declaration_state"] == "INVALID"
+    assert any(
+        "THIS_FILE_DOES_NOT_EXIST.py" in issue and "locator does not exist" in issue
+        for issue in model["architecture"]["issues"]
+    ), model["architecture"]["issues"]
+
+
+def test_desired_locator_may_point_at_a_file_that_does_not_exist_yet(tmp_path: Path) -> None:
+    """目标结构描述的是**还不存在**的东西, 它的 locator 现在指不到文件是正常的。
+
+    拿 current 那把尺子去量 desired, 会把"计划"误判成"错误" —— 那会逼着人为了过门
+    先建空文件, 正好毁掉 to_be 的意义。
+    """
+    _write_python_manifest(tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [
+                {
+                    "id": "architecture-doc",
+                    "kind": "architecture_document",
+                    "path": "docs/architecture.md",
+                }
+            ],
+            "current": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [
+                    {
+                        "id": "service:not-built-yet",
+                        "kind": "service",
+                        "name": "Planned service",
+                        "responsibility": "We intend to build this.",
+                        "locator": "src/moth/not_built_yet.py",
+                        "expectation": "REQUIRED",
+                        "evidence_ids": ["architecture-doc"],
+                    }
+                ],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert model["architecture"]["declaration_state"] == "DECLARED"
+    assert not [
+        issue for issue in model["architecture"]["issues"] if "locator" in issue
+    ]

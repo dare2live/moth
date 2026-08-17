@@ -28,6 +28,37 @@ def _strings(value: Any) -> list[str]:
     return [str(item) for item in _list(value)]
 
 
+def _provenance_of(
+    project_model: dict[str, Any],
+    entity_ids: list[str],
+    relation_ids: list[str],
+) -> dict[str, int]:
+    """数清给定的这批 id 里, 各有多少是扫描出来的、多少只是被声明过。
+
+    口径必须与页面上展示的那批 id 一致 —— 否则"20 个对象"配上一个按全量算的
+    "共 35 项"拆分, 读的人只会以为自己看错了。
+
+    project_model 里查不到的 id(例如 flow / state_machine —— 它们不在 entities 表里,
+    而且没有任何检测器产出这两样)一律算 declared。
+    """
+    source_by_id: dict[str, str] = {}
+    for collection in ("entities", "relations"):
+        for item in _list(project_model.get(collection)):
+            row = _mapping(item)
+            if row.get("id"):
+                source_by_id[str(row["id"])] = str(row.get("source") or "DECLARED")
+    counts = {"detected": 0, "declared": 0, "confirmed": 0}
+    for item_id in [*entity_ids, *relation_ids]:
+        source = source_by_id.get(item_id, "DECLARED")
+        if source == "DETECTED":
+            counts["detected"] += 1
+        elif source == "CONFIRMED":
+            counts["confirmed"] += 1
+        else:
+            counts["declared"] += 1
+    return counts
+
+
 def _digest(value: Any) -> str:
     canonical = json.dumps(
         value,
@@ -1273,7 +1304,21 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
         "layers": layers,
         "architecture": {
             "as_is": {
-                "state": "OBSERVED" if all_architecture_entity_ids else "PARTIAL",
+                # 采用 project_model 已经算好的结论, 不在这里第二次判定 ——
+                # 此前这里无条件写 OBSERVED, 于是一份 100% 手写的架构声明也会显示成"观察到的"。
+                # 拿不到上游结论时才退回按有没有实体来分, 且那种情况下不敢声称 OBSERVED。
+                "state": str(
+                    current_architecture.get("state")
+                    or ("OBSERVED" if all_architecture_entity_ids else "PARTIAL")
+                ),
+                # 按**这张卡片实际展示的那批 id** 数, 不直接搬 project_model 的全量统计:
+                # 大项目会按 entities_per_layer 截断引用列表, 两个口径混在一行里
+                # ("20 个对象" 配 "共 35 项")会让人算不明白, 而算不明白的数字等于没给。
+                "provenance": _provenance_of(
+                    project_model,
+                    architecture_entity_ids,
+                    architecture_relation_ids,
+                ),
                 "entity_ids": architecture_entity_ids,
                 "relation_ids": architecture_relation_ids,
                 "evidence_ids": sorted(

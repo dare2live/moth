@@ -172,3 +172,30 @@ def test_project_model_schema_declares_stage_one_contract() -> None:
     assert schema["$defs"]["relativePath"]["pattern"] == (
         r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$"
     )
+
+
+def test_published_schemas_match_the_ones_the_code_validates_against() -> None:
+    """仓根 schemas/ 与 src/moth/schemas/ 里的同名文件必须逐字相同。
+
+    这两处是同一份契约的两个拷贝: 代码用 src/ 那份校验, 对外发布的是仓根那份。
+    没有门的时候它们会悄悄漂 —— 2026-08-17 就漂过一次(给状态机加 name 时只改了 src/ 那份,
+    仓根那份没跟上), 症状是只有一个碰巧引用了公开 schema 的测试报红, 别的全绿。
+
+    只比对**两边都有**的文件: 仓根还发布了 snapshot / decision-context 等 src/ 不带的契约。
+    """
+    internal = REPO_ROOT / "src" / "moth" / "schemas"
+    published = REPO_ROOT / "schemas"
+    shared = sorted(
+        p.name for p in published.glob("*.schema.json") if (internal / p.name).is_file()
+    )
+    assert shared, "两个目录没有任何同名 schema —— 这个用例就白跑了"
+
+    drifted = [
+        name
+        for name in shared
+        if (internal / name).read_bytes() != (published / name).read_bytes()
+    ]
+    assert drifted == [], (
+        f"这些 schema 在 src/moth/schemas/ 与 schemas/ 之间漂了: {drifted}。"
+        "改契约时两份都要改。"
+    )

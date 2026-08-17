@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from moth.checks.import_cycles import _build_module_graph
 from moth.checks.import_cycles import audit_import_cycles
 from moth.checks.import_cycles import audit_import_cycles_for_profile
 from moth.checks.import_cycles import render_markdown
@@ -188,3 +189,40 @@ def test_cli_cycles_runs_configured_profile(tmp_path: Path, capsys) -> None:
     assert rc == 1
     assert payload["verdict"] == "FAIL"
     assert payload["new_cycles"] == [{"members": ["pkg.services.a", "pkg.services.b"]}]
+
+
+def test_src_layout_repo_builds_real_edges_instead_of_passing_empty(tmp_path) -> None:
+    """src-layout 仓必须真的连出边来, 不能靠"零条边"骗一个 PASS。
+
+    2026-08-17 实测(修复前): moth 对自己跑 `moth cycles` 得到
+    module_count=62 / edge_count=0 / verdict=PASS —— 一道假绿的门。
+    根因是 scan_modules 按**路径**拼成 "src.moth", 而源码里写的是 `from moth.x import`,
+    两套命名对不上, 前缀过滤把整张图清空。任何 src/ 布局的 Python 仓都会中。
+    """
+    pkg = tmp_path / "src" / "acme"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "alpha.py").write_text("from acme.beta import helper\n", encoding="utf-8")
+    (pkg / "beta.py").write_text("def helper() -> None:\n    return None\n", encoding="utf-8")
+
+    graph, missing = _build_module_graph(tmp_path, ["src/acme"], "acme")
+
+    assert missing == []
+    # 节点名必须是真 import 名, 不是路径名
+    assert "acme.alpha" in graph, sorted(graph)
+    assert "src.acme.alpha" not in graph
+    # 而且边真的连上了
+    assert graph["acme.alpha"] == {"acme.beta"}
+
+
+def test_flat_layout_still_works_after_the_src_layout_fix(tmp_path) -> None:
+    """flat-layout(包直接在仓根)下行为不变 —— 修 src-layout 不能把原来对的弄坏。"""
+    pkg = tmp_path / "acme"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "alpha.py").write_text("from acme.beta import helper\n", encoding="utf-8")
+    (pkg / "beta.py").write_text("def helper() -> None:\n    return None\n", encoding="utf-8")
+
+    graph, _ = _build_module_graph(tmp_path, ["acme"], "acme")
+
+    assert graph["acme.alpha"] == {"acme.beta"}

@@ -686,3 +686,74 @@ def test_state_machine_uses_its_declared_name_and_falls_back_to_the_id() -> None
     project_model["state_machines"] = [machine]
     unnamed = build_visual_model(inspection)
     assert unnamed["entities"]["state-machine:inspection"]["name"] == "state-machine:inspection"
+
+
+def test_as_is_provenance_counts_exactly_what_the_card_displays() -> None:
+    """来源拆分的口径必须等于卡片上展示的那批 id, 一项不多一项不少。
+
+    卡片上写的是"N 个对象，M 条关系（x 个扫描到，y 个只来自声明）"。
+    如果 x+y 按全量算而 N+M 按截断后算, 两个数字对不上, 读的人只会以为自己看错了 ——
+    算不明白的数字等于没给。
+    """
+    for label, inspection in (("baseline", inspection_fixture()),):
+        model = build_visual_model(inspection)
+        as_is = model["architecture"]["as_is"]
+        provenance = as_is["provenance"]
+        shown = len(as_is["entity_ids"]) + len(as_is["relation_ids"])
+        assert sum(provenance.values()) == shown, (
+            f"{label}: 来源拆分合计 {sum(provenance.values())} != 卡片展示的 {shown} 项"
+        )
+
+
+def test_architecture_state_never_claims_observed_for_a_hand_written_topology() -> None:
+    """全靠声明拼出来的当前结构不能显示成 OBSERVED。
+
+    视觉层此前无条件写 "OBSERVED" if entity_ids else "PARTIAL", 完全无视上游结论 ——
+    同一个毛病在模型层和视觉层各犯了一次。
+    """
+    inspection = inspection_fixture()
+    # 这份 fixture 是 v1 project model(没有 architecture 段), 补一个 v2 的当前结构结论进去 ——
+    # 视觉层要做的就是**采用**它, 而不是自己重判一次。
+    project_model = inspection["snapshot"]["project_model"]
+    project_model["architecture"] = {
+        "schema_version": "moth.architecture-model.v1",
+        "declaration_state": "DECLARED",
+        "current": {
+            "state": "DECLARED_ONLY",
+            "complete": False,
+            "provenance": {"detected": 0, "declared": 1, "confirmed": 0},
+            "entity_ids": ["service:only-declared"],
+            "relation_ids": [],
+            "flow_ids": [],
+            "state_machine_ids": [],
+            "evidence_ids": [],
+        },
+        "desired": {
+            "state": "NOT_DECLARED", "complete": False, "entities": [],
+            "relations": [], "flows": [], "state_machines": [], "evidence_ids": [],
+        },
+        "drift": {
+            "state": "NOT_COMPUTED", "findings": [],
+            "violation_ids": [], "unverifiable_ids": [], "conformant_ids": [],
+        },
+        "issues": [],
+        "warnings": [],
+    }
+    project_model["entities"] = [
+        {
+            "id": "service:only-declared",
+            "kind": "service",
+            "name": "Only declared",
+            "responsibility": "Nothing detected this.",
+            "evidence_ids": [],
+            "source": "DECLARED",
+        }
+    ]
+    project_model["relations"] = []
+    project_model["flows"] = []
+    project_model["state_machines"] = []
+
+    model = build_visual_model(inspection)
+
+    assert model["architecture"]["as_is"]["state"] == "DECLARED_ONLY"
+    assert model["architecture"]["as_is"]["provenance"]["detected"] == 0

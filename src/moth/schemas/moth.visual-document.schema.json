@@ -343,7 +343,17 @@
       "additionalProperties": false,
       "required": ["state", "entity_ids", "relation_ids", "evidence_ids", "omitted"],
       "properties": {
-        "state": {"enum": ["OBSERVED", "PARTIAL", "DECLARED", "NOT_DECLARED"]},
+        "state": {"enum": ["OBSERVED", "DECLARED_ONLY", "PARTIAL", "DECLARED", "NOT_DECLARED"]},
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["detected", "declared", "confirmed"],
+          "properties": {
+            "detected": {"type": "integer", "minimum": 0},
+            "declared": {"type": "integer", "minimum": 0},
+            "confirmed": {"type": "integer", "minimum": 0}
+          }
+        },
         "entity_ids": {"$ref": "#/$defs/stringList"},
         "relation_ids": {"$ref": "#/$defs/stringList"},
         "evidence_ids": {"$ref": "#/$defs/stringList"},

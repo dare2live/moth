@@ -156,6 +156,31 @@ def _unique_ids(payload: dict[str, Any]) -> list[str]:
     return issues
 
 
+def _validate_current_locators(payload: dict[str, Any], repo: Path) -> list[str]:
+    """current 段里声明的 locator 必须真的指向仓库里存在的文件。
+
+    **为什么这道校验是必需的** (2026-08-17 实测): 在 .moth/architecture.yaml 里插一个
+    ``locator: src/moth/THIS_FILE_DOES_NOT_EXIST.py``、职责写着"这个组件不存在于代码库任何地方"
+    的实体, build_project_model 给出 verdict=PASS、issues 为空, 所有门全绿 ——
+    也就是说这个工具当时可以显示一整张**虚构**的架构图而无人拦。
+
+    只校验 current(当前结构): desired(目标结构)描述的是**还不存在**的东西, 它的 locator
+    指向未来的文件位置, 现在不存在是正常的, 拿同一把尺子量它会把"计划"误判成"错误"。
+    """
+    issues: list[str] = []
+    for item in payload["current"]["entities"]:
+        locator = item.get("locator")
+        if not locator:
+            continue
+        target = repo / locator
+        if not target.exists():
+            issues.append(
+                f"architecture entity {item['id']}: locator does not exist in the "
+                f"repository: {locator}"
+            )
+    return issues
+
+
 def _validate_vocabulary(
     payload: dict[str, Any], policy: dict[str, Any]
 ) -> list[str]:
@@ -315,6 +340,7 @@ def load_architecture_intent(
         *_bounded(payload, policy),
         *_unique_ids(payload),
         *_validate_vocabulary(payload, policy),
+        *_validate_current_locators(payload, repo),
     ]
     evidence = [
         {
