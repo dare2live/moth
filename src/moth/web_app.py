@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import secrets
+import sys
+import traceback
 from collections.abc import Callable, Iterable
 from importlib.resources import files
 from threading import BoundedSemaphore
@@ -16,6 +18,19 @@ StartResponse = Callable[[str, list[tuple[str, str]]], Any]
 ProjectViewBuilder = Callable[[WebProject], dict[str, Any]]
 ProjectRegistration = Callable[[], tuple[WebConsoleConfig, str, bool] | None]
 ConfigLoader = Callable[[], WebConsoleConfig]
+
+
+def _log_failure(label: str) -> None:
+    """把被吞掉的异常打到服务端 stderr —— 客户端仍然只看到中性错误信息。
+
+    为什么必须有: 这两处 ``except Exception`` 原本什么也不留。浏览器上只有一句
+    "这次检查没有完成", 服务端日志一片空白, 排查只能靠人肉在 Python 里重跑一遍
+    (2026-08-17 真这么排过一次: 给 flow_step 加字段撞上视觉文档 schema, 500 无迹可循)。
+    一个帮人看问题的工具, 自己出问题时不该是黑盒。
+    栈只进 stderr 不进响应体: 本地控制台的运维信息, 不是给页面的内容。
+    """
+    print(f"[moth-web] {label} failed:", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
 
 
 def _json_bytes(payload: Any) -> bytes:
@@ -243,6 +258,7 @@ class WebConsoleApplication:
             try:
                 config = self._fresh_config()
             except Exception:
+                _log_failure("PROJECT_REGISTRY_FAILED")
                 return self._error(
                     start_response,
                     "500 Internal Server Error",
@@ -292,6 +308,7 @@ class WebConsoleApplication:
             try:
                 registration = self._project_registration()
             except Exception:
+                _log_failure("PROJECT_REGISTRATION_FAILED")
                 return self._error(
                     start_response,
                     "500 Internal Server Error",
@@ -354,6 +371,7 @@ class WebConsoleApplication:
                     "Configured project was not found.",
                 )
             except Exception:
+                _log_failure("PROJECT_REGISTRY_FAILED")
                 return self._error(
                     start_response,
                     "500 Internal Server Error",
@@ -372,6 +390,7 @@ class WebConsoleApplication:
             try:
                 result = self._project_view_builder(project)
             except Exception:
+                _log_failure("INSPECTION_FAILED")
                 return self._error(
                     start_response,
                     "500 Internal Server Error",

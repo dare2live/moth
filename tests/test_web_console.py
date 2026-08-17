@@ -963,3 +963,49 @@ def test_safe_view_disables_repo_git_fsmonitor_execution(tmp_path) -> None:
     build_report(profile, execution_policy="safe_view")
 
     assert not marker.exists()
+
+
+def test_failed_inspection_leaves_a_traceback_on_the_server(tmp_path, capsys) -> None:
+    """500 不能是黑盒: 浏览器只看到中性文案, 服务端必须留下栈。
+
+    2026-08-17 实际付过代价 —— 给 flow_step 加字段撞上视觉文档 schema, 控制台弹
+    "这次检查没有完成", 服务端日志一片空白, 只能人肉在 Python 里把整条链重跑一遍
+    才知道是哪一行。一个帮人看问题的工具, 自己出问题时得说得出哪里坏了。
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = _write_config(
+        tmp_path / ".moth" / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [{"id": "repo", "name": "Repository", "repo": "../repo"}],
+        },
+    )
+
+    def explode(project):
+        raise ValueError("visual document failed validation")
+
+    app = create_web_application(
+        load_web_console_config(config_path),
+        token="secret",
+        project_view_builder=explode,
+    )
+
+    status, _, body = _call_wsgi(
+        app,
+        "/api/v1/inspections",
+        method="POST",
+        token="secret",
+        payload={"project_id": "repo"},
+    )
+    captured = capsys.readouterr()
+
+    assert status == "500 Internal Server Error"
+    # 响应体仍然中性: 栈是本地控制台的运维信息, 不是给页面的内容。
+    assert b"visual document failed validation" not in body
+    assert json.loads(body)["error"]["code"] == "INSPECTION_FAILED"
+    # 服务端 stderr 上说得出是哪里坏了。
+    assert "INSPECTION_FAILED failed" in captured.err
+    assert "visual document failed validation" in captured.err
+    assert "Traceback" in captured.err
