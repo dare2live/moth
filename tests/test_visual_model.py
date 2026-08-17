@@ -458,3 +458,23 @@ def test_change_safety_projects_exact_risk_path_without_claiming_cause() -> None
     assert relation["target_id"] == "python-console:sample"
     assert model["findings"]["change-safety"]["severity"] == "medium"
     assert model["evidence"]["change:risk"]["kind"] == "HEURISTIC"
+
+
+def test_tooling_prerequisites_are_not_filed_as_project_problems() -> None:
+    """工具内务与项目问题必须分开 —— 归属按**消息内容**判, 不按产出点。
+
+    2026-08-17 实测暑假古诗: 同一个 add_message 产出点吐出 5 条, 其中 4 条是
+    Moth 自身前置未就绪(codegraph 未初始化 x2 / complexity baseline 缺失 /
+    safe view 禁用仓库自配可执行文件), 只有 1 条是项目问题(complexity hotspots)。
+    按产出点一刀切会把工具内务全记成项目问题, 把真问题挤出视野 ——
+    用户反馈"看了没啥实际用途"正源于此。
+    """
+    from moth.visual_model import _message_origin, ORIGIN_PROJECT, ORIGIN_TOOLING
+
+    assert _message_origin("codegraph: not initialized") == ORIGIN_TOOLING
+    assert _message_origin("complexity baseline unavailable: ...") == ORIGIN_TOOLING
+    assert _message_origin("safe view disabled repository-configured executables") == ORIGIN_TOOLING
+    # 项目自身的问题不得被误收进折叠区 —— 那比多显示几条更有害
+    assert _message_origin("complexity hotspots: 4 findings (4 high)") == ORIGIN_PROJECT
+    assert _message_origin("project coverage unavailable: no supported manifest") == ORIGIN_PROJECT
+

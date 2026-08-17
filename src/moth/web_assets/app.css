@@ -215,3 +215,8 @@ dialog::backdrop { background: rgba(17, 27, 22, .48); }
 .empty-explainer .explainer-how h3 { margin: 0 0 8px; font-size: 14px; }
 .empty-explainer ul { margin: 0; padding-left: 18px; }
 .empty-explainer li { margin: 4px 0; color: var(--muted); line-height: 1.6; }
+
+/* 工具自检折叠条: 视觉上明显弱于项目问题, 免得又抢注意力 */
+.tooling-selfcheck { margin: 18px 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.tooling-selfcheck summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.tooling-selfcheck[open] summary { margin-bottom: 10px; }

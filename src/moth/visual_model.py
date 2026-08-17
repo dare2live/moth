@@ -100,6 +100,17 @@ def _relation(
     }
 
 
+# finding 的**归属**: 这条说的是谁的问题。
+#   project — 用户项目本身的状况(架构漂移 / 复杂度热点 / 未提交改动 / 识别覆盖不足)
+#   tooling — Moth 自己的前置条件没就绪(索引没建 / baseline 缺失 / 上下文未验证)
+# 为什么必须分开: 控制台服务的是"学架构、看问题"的人, 而 tooling 类说的是本工具的内务,
+# 他既看不懂也不该关心。混在同一列表里, 工具内务会挤掉真正的项目问题 ——
+# 用户实测反馈"看了没啥实际用途", 页面上五条里有三条是 codegraph/baseline 未就绪。
+# severity/action_bucket 回答的是"多急", 这里回答的是"谁的事", 两个维度不可互相替代。
+ORIGIN_PROJECT = "project"
+ORIGIN_TOOLING = "tooling"
+
+
 def _finding(
     finding_id: str,
     *,
@@ -107,6 +118,7 @@ def _finding(
     severity: str,
     confidence: str,
     action_bucket: str,
+    origin: str,
     why: str,
     impact: list[str],
     safest_step: str,
@@ -129,6 +141,7 @@ def _finding(
         "severity": severity,
         "confidence": confidence,
         "action_bucket": action_bucket,
+        "origin": origin,
         "evidence_ids": sorted(set(evidence_ids)),
         "layer_ids": sorted(set(layer_ids)),
         "viewpoint_ids": sorted(set(viewpoint_ids)),
@@ -584,6 +597,29 @@ def _build_entities(
     return entities, relations, groups
 
 
+# `add_message` 是个混合入口: 各处检查的 warning/issue 都从这里进来, 所以归属**必须按
+# 消息内容判**, 不能按产出点一刀切。2026-08-17 实测暑假古诗, 同一个产出点吐出的 5 条里
+# 4 条是工具内务(codegraph 未初始化 x2 / complexity baseline 缺失 / safe view 禁用了
+# 仓库自配可执行文件), 只有 1 条是项目问题(complexity hotspots: 4 findings)。
+# 先前按产出点标成 project 是错的 —— 实测当场抓到。
+#
+# 判据只认**Moth 自身前置条件**这一类: 索引没建、基线没有、本工具的安全策略限制了自己。
+# 其余一律归 project —— 宁可把工具内务误判成项目问题(用户看到多余的), 也不要反过来
+# 把项目问题藏进折叠区(用户看不到该看的)。
+_TOOLING_MESSAGE_MARKERS = (
+    "codegraph",
+    "complexity baseline",
+    "baseline unavailable",
+    "safe view disabled",
+    "guidance",
+)
+
+
+def _message_origin(message: str) -> str:
+    low = str(message or "").lower()
+    return ORIGIN_TOOLING if any(m in low for m in _TOOLING_MESSAGE_MARKERS) else ORIGIN_PROJECT
+
+
 def _build_findings(
     *,
     inspection: dict[str, Any],
@@ -606,6 +642,7 @@ def _build_findings(
         )
         findings[finding_id] = _finding(
             finding_id,
+            origin=_message_origin(message),
             title="检查发现问题" if issue else "检查覆盖仍不完整",
             severity="high" if issue else "medium",
             confidence="high",
@@ -638,6 +675,7 @@ def _build_findings(
         )
         findings["guidance-context"] = _finding(
             "guidance-context",
+            origin=ORIGIN_TOOLING,  # guidance 上下文是 Moth 自身的加载前置
             title="协作上下文尚未验证",
             severity="high" if readiness == "BLOCKED" else "medium",
             confidence="high",
@@ -660,6 +698,7 @@ def _build_findings(
         )
         findings["dirty-worktree"] = _finding(
             "dirty-worktree",
+            origin=ORIGIN_PROJECT,  # 工作区状态属项目
             title="工作区存在未提交改动",
             severity="medium",
             confidence="high",
@@ -682,6 +721,7 @@ def _build_findings(
         )
         findings["codegraph-freshness"] = _finding(
             "codegraph-freshness",
+            origin=ORIGIN_TOOLING,  # codegraph 索引是 Moth 的前置条件
             title="代码索引不是最新状态",
             severity="high",
             confidence="high",
@@ -707,6 +747,7 @@ def _build_findings(
         )
         findings["complexity-high"] = _finding(
             "complexity-high",
+            origin=ORIGIN_PROJECT,  # 复杂度热点说的是项目代码
             title="存在高风险复杂度线索",
             severity="medium",
             confidence="medium",
@@ -732,6 +773,7 @@ def _build_findings(
         )
         findings[finding_id] = _finding(
             finding_id,
+            origin=ORIGIN_PROJECT,  # 项目缺清单, 说的是项目
             title="项目识别覆盖不完整",
             severity="medium",
             confidence="high",
@@ -763,6 +805,7 @@ def _build_findings(
             ]
         findings["change-safety"] = _finding(
             "change-safety",
+            origin=ORIGIN_PROJECT,  # 变更安全裁决说的是项目改动的风险
             title=(
                 "变更安全门禁未通过"
                 if change_verdict == "NO_GO"
@@ -804,6 +847,7 @@ def _build_findings(
             evidence_ids = [evidence_id]
         findings[finding_id] = _finding(
             finding_id,
+            origin=ORIGIN_PROJECT,  # 架构漂移说的是项目结构与其声明不符
             title=(
                 "架构约束与现状冲突"
                 if status == "VIOLATION"

@@ -243,6 +243,7 @@
         "severity",
         "confidence",
         "action_bucket",
+        "origin",
         "evidence_ids",
         "layer_ids",
         "viewpoint_ids"
@@ -259,6 +260,7 @@
         "severity": {"enum": ["high", "medium", "low"]},
         "confidence": {"enum": ["high", "medium", "low"]},
         "action_bucket": {"enum": ["now", "watch", "defer"]},
+        "origin": {"enum": ["project", "tooling"]},
         "evidence_ids": {"$ref": "#/$defs/stringList"},
         "layer_ids": {"$ref": "#/$defs/stringList"},
         "viewpoint_ids": {"$ref": "#/$defs/stringList"}

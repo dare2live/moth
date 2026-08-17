@@ -197,6 +197,16 @@
     return box;
   }
 
+  // 工具自检折叠条: 默认收起, 只报个数。这些是 Moth 跑得好不好, 不是项目好不好。
+  function toolingSelfCheck(items) {
+    const box = node("details", null, "tooling-selfcheck");
+    const sum = node("summary");
+    sum.textContent = `工具自检: ${items.length} 项前置未就绪(与你的项目无关, 点开查看)`;
+    box.append(sum);
+    items.forEach((f) => box.append(findingRow(f)));
+    return box;
+  }
+
   function section(title, items, renderer, options = {}) {
     const wrap = node("section", null, `section ${options.className || ""}`.trim());
     const header = node("div", null, "section-header");
@@ -364,8 +374,17 @@
       );
     }
 
-    if (priorities.length) {
-      ui.primary.append(section("当前需要关注", priorities, findingRow, {}));
+    // 按 origin 分流: 项目问题是主角, 工具内务收进折叠条。
+    // 实测暑假古诗 8 条里 5 条是 codegraph/baseline/safe-view 未就绪 —— 那是 Moth
+    // 自己的前置条件, 学习者既看不懂也不该关心, 混在一起会把 3 条真问题挤没。
+    const projectFindings = priorities.filter((f) => f.origin !== "tooling");
+    const toolingFindings = priorities.filter((f) => f.origin === "tooling");
+
+    if (projectFindings.length) {
+      ui.primary.append(section("当前需要关注", projectFindings, findingRow, {}));
+    }
+    if (toolingFindings.length) {
+      ui.primary.append(toolingSelfCheck(toolingFindings));
     }
 
     if (!hasStructure) {
