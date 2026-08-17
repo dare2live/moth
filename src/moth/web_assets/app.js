@@ -163,6 +163,40 @@
     ui.dialog.showModal();
   }
 
+  // 无证据时的解释区块。服务对象是 vibecoding 的学习者, 所以要回答三件事:
+  // 这是什么目录 / 为什么 Moth 说不出结构 / 想看到结构该补什么。
+  // 刻意**不**猜测项目内容: Moth 只报它真能观察到的东西, 猜出来的架构比空白更有害。
+  function emptyProjectExplainer(model) {
+    const box = node("section", null, "panel empty-explainer");
+    box.append(node("h2", "Moth 目前读不出这个项目的结构"));
+
+    const why = node("p", null, "muted");
+    const detectors = ((model.coverage || {}).detectors || [])
+      .filter((d) => d.state === "NOT_DETECTED").length;
+    why.textContent =
+      "这个目录里没有任何项目清单文件(如 pyproject.toml、package.json、requirements.txt)。" +
+      "Moth 只根据仓库里真实存在的证据描述项目 —— " + detectors +
+      " 个检测器都没找到可依据的清单, 所以它不去猜, 而是如实说读不出来。";
+    box.append(why);
+
+    const how = node("div", null, "explainer-how");
+    how.append(node("h3", "想让它读出结构, 补一个清单就够"));
+    const list = node("ul");
+    [
+      "Python 脚本: 加一个 requirements.txt 写明依赖, 或 pyproject.toml 写明项目名与入口",
+      "前端 / Node: 加 package.json",
+      "只是一堆脚本、暂时不想加清单: 那 Moth 对它就只能给出上面「需要关注」里的通用检查"
+    ].forEach((line) => list.append(node("li", line)));
+    how.append(list);
+    box.append(how);
+
+    const note = node("p", null, "muted");
+    note.textContent =
+      "注: Moth 不会根据文件名或目录结构猜测架构 —— 猜出来的架构看着完整, 但会把人带偏。";
+    box.append(note);
+    return box;
+  }
+
   function section(title, items, renderer, options = {}) {
     const wrap = node("section", null, `section ${options.className || ""}`.trim());
     const header = node("div", null, "section-header");
@@ -309,12 +343,37 @@
     const priorities = itemsById(doc.home.priority_finding_ids, doc.findings);
 
     clear(ui.metrics);
-    ui.metrics.append(
-      metric("应用", applications.length),
-      metric("模块", modules.length),
-      metric("技术", technologies.length),
-      metric("流程", flows.length)
-    );
+    // 四个计数器只在**至少有一项非零**时才显示。全 0 时它们没有任何信息量, 却是
+    // 页面上最醒目的元素 —— 用户实测反馈: "关键数据全是空白", 而真正的答案
+    // (没有清单所以读不出) 被这四个 0 压在下面。
+
+    // 本工具服务 vibecoding 的人: 用来**学架构、看问题**。据此排序内容, 而不是
+    // 无条件铺满六个区块 —— 实测一个只有脚本没有清单的目录, 页面渲染出四个大 0 和
+    // 六个"尚未识别出…", 而唯一能动手的「当前需要关注」被压在最底部。
+    const hasStructure =
+      applications.length || modules.length || technologies.length ||
+      flows.length || relations.length || documents.length;
+
+    // 问题永远排在最前: 它是"看问题"这一半用途的全部载体, 且是空项目里唯一有内容的东西。
+    if (hasStructure) {
+      ui.metrics.append(
+        metric("应用", applications.length),
+        metric("模块", modules.length),
+        metric("技术", technologies.length),
+        metric("流程", flows.length)
+      );
+    }
+
+    if (priorities.length) {
+      ui.primary.append(section("当前需要关注", priorities, findingRow, {}));
+    }
+
+    if (!hasStructure) {
+      // 无证据时不铺空壳: 直接讲清"为什么什么都没有"和"要看到东西需要补什么",
+      // 这对学习者才有用。诚实地报 0 但不解释, 等于给一堵白墙。
+      ui.primary.append(emptyProjectExplainer(model));
+      return;
+    }
 
     ui.primary.append(section("应用入口", applications, entityRow, {
       empty: "尚未从项目清单或入口文件识别出应用。"
@@ -323,25 +382,14 @@
     if (relations.length) ui.primary.append(relationSection("组件关系", relations));
 
     const split = node("div", null, "section-split");
-    split.append(
-      section("核心模块", modules, entityRow, { empty: "尚未识别出可验证模块。" }),
-      section("技术栈", technologies, entityRow, { empty: "尚未识别出运行时或技术依赖。" })
-    );
-    ui.primary.append(split);
+    if (modules.length) split.append(section("核心模块", modules, entityRow, {}));
+    if (technologies.length) split.append(section("技术栈", technologies, entityRow, {}));
+    if (split.children.length) ui.primary.append(split);
 
     const learning = node("div", null, "section-split");
-    learning.append(
-      section("业务与系统流程", flows, flowRow, {
-        empty: "项目尚未声明可验证流程。Moth 不会根据组件名称猜测调用链。"
-      }),
-      section("项目文档", documents, entityRow, {
-        empty: "当前项目未提供可读取的项目文档入口。"
-      })
-    );
-    ui.primary.append(learning);
-    ui.primary.append(section("当前需要关注", priorities, findingRow, {
-      empty: "当前检查没有生成优先问题。"
-    }));
+    if (flows.length) learning.append(section("业务与系统流程", flows, flowRow, {}));
+    if (documents.length) learning.append(section("项目文档", documents, entityRow, {}));
+    if (learning.children.length) ui.primary.append(learning);
   }
 
   function renderLayer(layerId) {

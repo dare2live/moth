@@ -82,8 +82,13 @@ def select_project_directory() -> Path | None:
     command = [str(item) for item in spec.get("command", [])]
     if command != ["/usr/bin/osascript"]:
         raise ProjectSelectionError("native project selection command is invalid")
+    # 先 activate 再弹窗: osascript 本身不是 GUI 应用, 直接 `choose folder` 会让 macOS
+    # 为一个后台进程现场注册/激活窗口, 用户侧实测**要等 3-4 秒**对话框才出现, 且窗口
+    # 可能藏到其它窗口后面。osascript 进程冷启动实测仅 0.03s, 所以延迟不在启动而在这里。
+    # 让 System Events 先取得前台身份, 对话框即以正常前台窗口出现。
     script = (
         "try\n"
+        '  tell application "System Events" to activate\n'
         '  set selectedFolder to choose folder with prompt "Choose a project folder for Moth"\n'
         '  return "SELECTED\\n" & POSIX path of selectedFolder\n'
         "on error number -128\n"
