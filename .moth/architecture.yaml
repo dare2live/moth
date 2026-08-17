@@ -239,6 +239,7 @@ current:
       evidence_ids: [web-console-contract, operating-model]
   state_machines:
     - id: state-machine:inspection
+      name: Inspection lifecycle
       entity_id: service:inspection
       initial_state: idle
       states: [idle, inspecting, assessed, rendered, failed]

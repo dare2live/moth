@@ -9,7 +9,7 @@ from moth.visual_model import (
     validate_visual_model,
 )
 
-from test_visual_model import inspection_fixture
+from test_visual_model import inspection_fixture, topology_fixture
 
 
 def test_visual_document_matches_public_schema() -> None:
@@ -95,3 +95,20 @@ def test_html_renderer_does_not_import_collectors_or_filesystem() -> None:
         "pathlib",
     ):
         assert forbidden not in source
+
+
+def test_visual_document_with_flows_and_state_machines_matches_public_schema() -> None:
+    """schema 校验必须跑在**走过流程/状态机分支**的文档上。
+
+    v1 fixture 一条 flow_step 都不产生, 所以它证明不了 relation 的形状 ——
+    给 flow_step 加 ``order`` 时全绿而 Web Console 500, 就是这么来的。
+    """
+    model = build_visual_model(topology_fixture())
+
+    steps = [r for r in model["relations"].values() if r["kind"] == "flow_step"]
+    assert steps, "样本里没有 flow_step, 这个用例就没在验它该验的东西"
+    assert all("order" in step for step in steps)
+    assert any(e["kind"] == "state_machine" for e in model["entities"].values())
+
+    assert validate_visual_document_schema(model) == []
+    assert validate_visual_model(model) == []

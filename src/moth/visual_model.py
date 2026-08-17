@@ -89,8 +89,9 @@ def _relation(
     target_id: str,
     label: str,
     evidence_ids: list[str],
+    order: int | None = None,
 ) -> dict[str, Any]:
-    return {
+    row = {
         "id": relation_id,
         "kind": kind,
         "source_id": source_id,
@@ -98,6 +99,13 @@ def _relation(
         "label": label,
         "evidence_ids": sorted(set(evidence_ids)),
     }
+    # 只有**有序**的关系(目前只有 flow_step)带 order。
+    # 为什么不让视图自己数: 文档输出前 relations 按 id 字典序重排(见文末 dict(sorted(...))),
+    # 而 id 里的序号没补零 —— 10 步的流程会排成 1, 10, 2, 3。顺序是模型知道的事实,
+    # 让视图从 id 字符串里反推等于把同一件事算第二遍, 且算错。
+    if order is not None:
+        row["order"] = int(order)
+    return row
 
 
 # finding 的**归属**: 这条说的是谁的问题。
@@ -408,6 +416,7 @@ def _build_entities(
                 target_id=target_id,
                 label=str(step.get("action") or f"步骤 {index + 1}"),
                 evidence_ids=evidence_ids,
+                order=index + 1,
             )
 
     def add_state_machine(raw_machine: Any, *, desired: bool) -> None:
@@ -420,7 +429,9 @@ def _build_entities(
         entities[machine_id] = _entity(
             machine_id,
             kind="state_machine",
-            name=machine_id,
+            # 声明里给了名字就用名字 —— 与 flow 一致。此前无条件用 id, 于是标题栏上写着
+            # `state-machine:inspection`, 对着它看的人学不到任何东西。
+            name=str(machine.get("name") or machine_id),
             summary=(
                 f"初始状态 {machine.get('initial_state') or 'UNKNOWN'}，"
                 f"{len(_list(machine.get('transitions')))} 个显式转换。"

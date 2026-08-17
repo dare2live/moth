@@ -94,6 +94,57 @@ def inspection_fixture() -> dict:
     }
 
 
+def topology_fixture() -> dict:
+    """带流程与状态机的 v2 检查结果。
+
+    存在的理由: schema 校验此前只跑在 v1 的 ``inspection_fixture()`` 上, 而它**没有流程、
+    没有状态机、没有步骤关系** —— 于是给 flow_step 加 ``order`` 字段时 347 条测试全绿,
+    Web Console 却当场 500 (视觉文档 schema 的 relation 是 additionalProperties: false)。
+    schema 只被没走过那条分支的样本验过, 等于没验。
+    """
+    inspection = inspection_fixture()
+    inspection["snapshot"]["project_model"].update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "service:worker",
+                    "kind": "service",
+                    "name": "Worker",
+                    "responsibility": "Do the work.",
+                    "locator": "src/worker.py",
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [
+                {
+                    "id": "flow:main",
+                    "name": "Main flow",
+                    "steps": [
+                        {"id": "step:a", "entity_id": "service:worker", "action": "start"},
+                        {"id": "step:b", "entity_id": "service:worker", "action": "finish"},
+                    ],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "state_machines": [
+                {
+                    "id": "state-machine:worker",
+                    "name": "Worker lifecycle",
+                    "entity_id": "service:worker",
+                    "initial_state": "idle",
+                    "states": ["idle", "done"],
+                    "transitions": [
+                        {"id": "t:go", "from_state": "idle", "to_state": "done", "trigger": "go"}
+                    ],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+        }
+    )
+    return inspection
+
 def test_visual_document_has_global_references_and_six_configured_layers() -> None:
     model = build_visual_model(inspection_fixture())
 
@@ -559,3 +610,79 @@ def test_diagram_nodes_resolve_to_an_entity_that_carries_evidence() -> None:
             entity = model["entities"].get(entity_id)
             assert entity is not None, f"{label}: 架构引用了不存在的实体 {entity_id}, 节点点不开"
             assert entity.get("evidence_ids"), f"{label}: {entity_id} 没有证据, 点开是空抽屉"
+
+
+def test_flow_steps_keep_their_real_order_past_ten_steps() -> None:
+    """步骤顺序由模型给的 order 决定, 不由关系 id 的字典序决定。
+
+    文档输出前 relations 会按 id 重排 (``dict(sorted(...))``), 而 id 里的序号没补零 ——
+    12 步的流程按字典序是 1, 10, 11, 12, 2, 3…。步骤条是给人读"先干什么再干什么"的,
+    顺序错了比不画还糟: 它看起来仍然像一条正确的链。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "service:worker",
+                    "kind": "service",
+                    "name": "Worker",
+                    "responsibility": "Do the work.",
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [
+                {
+                    "id": "flow:long",
+                    "name": "Long flow",
+                    "steps": [
+                        {"id": f"step:{n}", "entity_id": "service:worker", "action": f"action-{n:02d}"}
+                        for n in range(1, 13)
+                    ],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "state_machines": [],
+        }
+    )
+
+    model = build_visual_model(inspection)
+    steps = [r for r in model["relations"].values() if r["kind"] == "flow_step"]
+    assert len(steps) == 12
+
+    # 字典序确实是错的 —— 这条断言证明上面那个坑真的存在, 不是想象出来的。
+    assert [r["label"] for r in steps] != [f"action-{n:02d}" for n in range(1, 13)]
+    # 按 order 排才是真顺序。
+    ordered = sorted(steps, key=lambda r: r["order"])
+    assert [r["label"] for r in ordered] == [f"action-{n:02d}" for n in range(1, 13)]
+
+
+def test_state_machine_uses_its_declared_name_and_falls_back_to_the_id() -> None:
+    """声明给了名字就用名字; 没给才退回 id (退回时不编一个名字出来)。
+
+    此前无条件用 id, 页面标题栏上就写着 ``state-machine:inspection`` —— 对着它看的人
+    学不到任何东西, 而声明里本来可以有名字。
+    """
+    inspection = inspection_fixture()
+    machine = {
+        "id": "state-machine:inspection",
+        "entity_id": "python:sample",
+        "initial_state": "idle",
+        "states": ["idle", "done"],
+        "transitions": [{"id": "t:1", "from_state": "idle", "to_state": "done", "trigger": "go"}],
+        "evidence_ids": ["manifest:pyproject.toml"],
+    }
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {"schema_version": "moth.project-model.v2", "entities": [], "relations": [],
+         "flows": [], "state_machines": [{**machine, "name": "Inspection lifecycle"}]}
+    )
+    named = build_visual_model(inspection)
+    assert named["entities"]["state-machine:inspection"]["name"] == "Inspection lifecycle"
+
+    project_model["state_machines"] = [machine]
+    unnamed = build_visual_model(inspection)
+    assert unnamed["entities"]["state-machine:inspection"]["name"] == "state-machine:inspection"

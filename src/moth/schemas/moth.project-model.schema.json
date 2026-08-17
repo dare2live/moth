@@ -283,6 +283,7 @@
       ],
       "properties": {
         "id": {"type": "string"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
         "entity_id": {"type": "string"},
         "initial_state": {"type": "string"},
         "states": {
