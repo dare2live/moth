@@ -1,5 +1,5 @@
 schema_version: moth.compatibility-matrix.v1
-observed_at: 2026-08-26
+observed_at: 2026-09-08
 policy:
   compatibility_authority: runtime_capability_and_output_contract
   version_ceiling: null
@@ -27,7 +27,7 @@ components:
     authority: fresh task can load the installed Moth Skill and complete its receipt rerun
   codegraph:
     role: structural_index_and_impact_evidence
-    observed_version: 1.5.0
+    observed_version: 1.6.0
     version_constraint: null
     required_capabilities:
       - status_json

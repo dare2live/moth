@@ -120,12 +120,21 @@ moth inspect --repo /Users/dp/Documents/M/lifehack --task-kind high_risk_change 
 
 Moth expects the current CodeGraph CLI surface (`status --json`,
 `affected --json`, `query --path`, `explore --path`). Complexity scanning is
-built in (see above); installing the upstream skill is only needed if a
-profile pins an external `complexity_command`:
+built in (see above), and repo-local profiles are *forbidden* from pinning an
+external `complexity_command` — a repository under audit that can name the
+executable can hijack its own auditor. Installing the upstream skill is only
+needed when a bundled profile (one shipped in this repo's `profiles/`) pins
+one:
 
 ```bash
-npm install -g codex-complexity-optimizer
+npm install -g agent-complexity-optimizer
 ```
+
+That package is the successor to the older `codex-complexity-optimizer`,
+which stopped at 0.1.0 when the skill became agent-agnostic. Both ship an
+installer rather than a library. Moth's vendored copy is a separate lineage
+(see `src/moth/analyzers/complexity.py`) and is deliberately schema-frozen,
+so upgrading the npm package does not move Moth's own findings.
 
 Omen is an optional external evidence provider. The verified upstream is
 `panbanda/omen`; install its CLI with:
