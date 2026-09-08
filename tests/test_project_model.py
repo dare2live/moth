@@ -66,15 +66,17 @@ def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
     assert model["architecture"]["declaration_state"] == "DECLARED"
     # 这里此前断言 CONFORMANT, 而那个 CONFORMANT 是假的: drift 拿 desired 跟 current 比,
     # 而 current 里的关系正是同一份 .moth/architecture.yaml 合并进来的 —— 声明在跟自己比,
-    # 结论恒为"一致"。接上 AST import 图之后, 两条经不起核对的声明被诚实地标了出来:
-    #   relation:inspection-guidance-application —— inspection.py 根本不 import
-    #     guidance_application, 真正的调用方是 decision_context.py, 而它不在声明里
+    # 结论恒为"一致"。接上 AST import 图之后, 经不起核对的声明被诚实地标了出来:
     #   relation:web-launcher-server —— 端点是 start.command(shell), import 图管不到
     # 所以整体从"一致"变成"无法证实"。这不是回归, 这正是被修掉的那个假象。
+    #
+    # 2026-09-08: .moth/architecture.yaml 曾还声明过 relation:inspection-guidance-
+    # application (同样 UNVERIFIABLE, 因为真正的调用方是 decision_context.py 而非
+    # inspection.py) —— 该关系随 guidance-application 证据层一起退役并从声明里删除,
+    # 而不是被"修好", 详见 docs/migration-next.md。
     drift = model["architecture"]["drift"]
     assert drift["state"] == "UNVERIFIABLE"
     assert drift["unverifiable_ids"] == [
-        "relation:relation:inspection-guidance-application",
         "relation:relation:web-launcher-server",
     ]
     assert drift["violation_ids"] == []

@@ -56,12 +56,47 @@ must inventory authoritative upstreams, update to the selected latest stable
 releases, run capability/output probes, refresh observed evidence, update the
 plugin cachebuster, reinstall the plugin, and forward-test from a fresh task.
 
-Guidance discovery, activation, and application are independent contracts.
-`--application-reports` accepts `moth.guidance-application.v1` evidence bound
-to the original run, current Skill digest, and matching activation receipt. It
-records bounded decision summaries and structured conflict resolutions; every
-reference must resolve in the current project-model evidence registry. Moth
-does not parse prose or claim host-native verification.
+Guidance discovery and activation-receipt state are independent contracts (see
+`src/moth/guidance.py` and `src/moth/decision_context.py`). A third layer,
+Guidance application evidence, previously let a controller pass
+`--application-reports` accepting `moth.guidance-application.v1` evidence
+bound to the original run, current Skill digest, and matching activation
+receipt, recording bounded decision summaries and structured conflict
+resolutions. That layer was retired 2026-09-08 and deleted
+(`src/moth/guidance_application.py` and its schema/policy/tests): an
+independent review found no host ever produced application reports. The
+receipt/application loop was wired only for the Codex host — the sole receipt
+writer in the repo is
+`plugins/moth/skills/moth/scripts/make_activation_receipts.py`, which stamps a
+fixed `codex-moth-skill` executor — and other hosts have no matching Skill
+install, so the layer validated nothing beyond its own tests, never a real
+consumer.
+
+For the record, the layer was *not* retired because it required a
+`PLATFORM_VERIFIED` receipt. Its policy accepted
+`activation_states: [SELF_ATTESTED, PLATFORM_VERIFIED]`, and a `SELF_ATTESTED`
+receipt was enough to drive a report all the way to `report_state: VALID`,
+`application_state: APPLIED_WITH_EVIDENCE`, and
+`application_readiness: COMPLETE`. `PLATFORM_VERIFIED` is separately
+unreachable in this codebase (`_receipt_state` in `decision_context.py` only
+ever returns `NONE`, `INVALID`, `STALE`, or `SELF_ATTESTED`), which is why
+`context_readiness` can never reach `READY` while a required source is active
+— but that is a fact about the receipt layer, not a dependency of the retired
+application layer. The reason for retirement is the absence of a producer,
+full stop.
+
+Retiring it does narrow one specific path: a caller could previously hand a
+required source a `SELF_ATTESTED` activation receipt and *also* pass a
+non-empty `--application-reports` array that failed to claim that source, which
+forced `context_readiness` to `BLOCKED` (via `missing_application_sources`)
+instead of the usual `SELF_ATTESTED`. That path no longer exists — such a
+source now resolves to `SELF_ATTESTED` like any other. No shipped caller
+(`moth.cli`, `moth.orchestration`, `moth.inspection`) ever populated
+`application_reports` with anything, so this does not change the behavior of
+any pipeline that has run to date; it only removes a lever a caller could have
+used by hand-crafting a report file. Every other `context_readiness` path —
+`BLOCKED` from a missing, invalid, or stale activation receipt, and `READY`/
+`SELF_ATTESTED` from receipt state alone — is unchanged.
 
 Before an external update, retain the previously observed version and plugin
 cache entry. If the new runtime fails a required capability/output probe,

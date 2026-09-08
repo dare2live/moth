@@ -17,8 +17,6 @@ def prepare_task_context(
     run_id: str,
     receipts: list[dict[str, Any]],
     codex_home: str | Path,
-    application_reports: list[dict[str, Any]] | None = None,
-    available_evidence_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     registry = load_guidance_registry(profile_sources, codex_home=codex_home)
     guidance = resolve_guidance_sources({"sources": registry["sources"]}, codex_home=codex_home)
@@ -27,8 +25,6 @@ def prepare_task_context(
         task_kind=task_kind,
         run_id=run_id,
         receipts=receipts,
-        application_reports=application_reports,
-        available_evidence_ids=available_evidence_ids,
     )
     return {
         "schema_version": "moth.orchestration.v1",

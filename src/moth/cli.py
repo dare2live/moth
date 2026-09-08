@@ -62,10 +62,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect.add_argument("--run-id")
     inspect.add_argument("--receipts")
-    inspect.add_argument(
-        "--application-reports",
-        help="Structured Guidance application evidence bound to this run",
-    )
     inspect.add_argument("--plan-only", action="store_true")
     inspect.add_argument(
         "--change-phase",
@@ -318,16 +314,11 @@ def main(argv: list[str] | None = None) -> int:
         visual_document = None
         try:
             receipts = _load_receipts(args.receipts)
-            application_reports = _load_object_array(
-                args.application_reports,
-                label="application reports",
-            )
             profile = _resolve_inspection_profile(args.repo, args.profile)
             inspection_kwargs = {
                 "task_kind": args.task_kind,
                 "run_id": args.run_id or f"run-{uuid.uuid4().hex}",
                 "receipts": receipts,
-                "application_reports": application_reports,
                 "codex_home": Path(
                     os.environ.get("CODEX_HOME", Path.home() / ".codex")
                 ),

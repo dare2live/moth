@@ -125,33 +125,17 @@ that requires machine verification must still require `READY`.
 For a task with an empty activation order, skip receipt generation and require
 the first inspection to be `READY`.
 
-## 5. Record application evidence
+## 5. Guidance application evidence (retired)
 
-During substantive work, keep bounded, portable IDs for decisions influenced
-by each loaded Guidance source and evidence references that support the
-influence. Record conflicts explicitly with the other source IDs, the selected
-resolution, and evidence. Every reference must resolve to an ID in the current
-inspection's `snapshot.project_model.evidence`; never invent a receipt or
-evidence ID. Copy `contract_id` and `loaded_at` from that source's matching
-activation receipt, and include a bounded overall decision summary plus a
-summary for each influenced decision. Before the final inspection, write a
-temporary JSON array conforming to `moth.guidance-application.v1` and pass it
-through the same entry:
-
-```bash
-moth inspect --repo <repo> --task-kind <kind> \
-  --run-id <run-id-from-first-plan> \
-  --receipts <temporary-receipts.json> \
-  --application-reports <temporary-application-reports.json> \
-  --format json
-```
-
-Require every claimed source to report `APPLIED_WITH_EVIDENCE`. A missing,
-invalid, stale, duplicate, or evidence-free report remains `NOT_CLAIMED`.
-Application evidence is an explicit executor claim about decision influence;
-it does not upgrade `SELF_ATTESTED` loading to host verification and does not
-prove that the decision itself was correct. Never infer application by parsing
-chat text or Skill prose.
+This step is retired as of 2026-09. Moth no longer accepts
+`--application-reports` and no longer validates `moth.guidance-application.v1`
+evidence — the CLI flag, the validator, and its schema were deleted. An
+independent review found no host ever produced these reports: the
+receipt/application loop was wired only for the Codex host, and other hosts
+have no matching Skill install, so the mechanism was exercised only by its own
+tests, never by a real consumer. `context_readiness` now reflects only
+discovery and activation-receipt state (step 4 above). See
+`docs/migration-next.md` for detail.
 
 ## 6. Execute through evidence gates
 
@@ -168,7 +152,7 @@ Before completion:
 - Keep project health separate from task-context readiness.
 - Report partial or blocked states honestly; do not convert missing evidence to
   PASS.
-- Remove temporary plan, receipt, and application-report files.
+- Remove temporary plan and receipt files.
 
 For a scoped code change, keep using the same Moth entry:
 

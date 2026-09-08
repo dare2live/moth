@@ -9,13 +9,13 @@
   "interface": {
     "displayName": "Moth",
     "shortDescription": "One call for project truth, Mio, and architecture control.",
-    "longDescription": "Moth inspects repository evidence, serves an authenticated local multi-project atlas, activates registered Guidance such as Mio and architect-controller in order, records structured application evidence without overstating host verification, and drives work through project-owned gates.",
+    "longDescription": "Moth inspects repository evidence, serves an authenticated local multi-project atlas, activates registered Guidance such as Mio and architect-controller in order, records honest executor self-attestation without overstating host verification, and drives work through project-owned gates.",
     "developerName": "Moth contributors",
     "category": "Productivity",
     "capabilities": [
       "Project audit",
       "Task orchestration",
-      "Guidance application evidence",
+      "Guidance activation receipts",
       "Architecture intent",
       "Change safety",
       "Local project Web Console"

@@ -89,7 +89,9 @@ components:
       - inspect_html
       - serve_web_console
       - guidance_plan
-      - guidance_application
+      # guidance_application retired 2026-09-08: no host ever produced
+      # application reports, so the layer had no consumer outside its own
+      # tests; see docs/migration-next.md.
       - change_safety
       - stdin_stdout_transport
     authority: plugin validators and fresh-task forward test

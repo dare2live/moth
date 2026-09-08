@@ -37,17 +37,6 @@ assertions:
     expect:
       op: regex
       pattern: "^$"
-  - id: public-guidance-application-schema-mirror
-    claim: The packaged and public Guidance application schemas are identical.
-    type: shell
-    command:
-      - cmp
-      - -s
-      - src/moth/schemas/moth.guidance-application.schema.json
-      - schemas/moth.guidance-application.schema.json
-    expect:
-      op: regex
-      pattern: "^$"
   - id: public-architecture-schema-mirror
     claim: The packaged and public architecture-intent schemas are identical.
     type: shell

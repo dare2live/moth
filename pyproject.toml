@@ -27,10 +27,10 @@ where = ["src"]
 [tool.setuptools.package-data]
 moth = [
   "guidance_policy.yaml",
-  "guidance_application_policy.yaml",
   "visual_policy.yaml",
   "architecture_policy.yaml",
   "change_safety_policy.yaml",
+  "import_graph_policy.yaml",
   "web_policy.yaml",
   "web_assets/*",
   "detectors/*.yaml",

@@ -21,12 +21,6 @@ current:
       responsibility: Compose project health, Guidance, and optional change safety.
       locator: src/moth/inspection.py
       evidence_ids: [upgrade-plan, operating-model]
-    - id: service:guidance-application
-      kind: service
-      name: Guidance application evidence
-      responsibility: Validate structured decision influence and conflict evidence independently from activation receipts.
-      locator: src/moth/guidance_application.py
-      evidence_ids: [upgrade-plan, operating-model]
     - id: service:snapshot
       kind: service
       name: Snapshot service
@@ -124,12 +118,6 @@ current:
       target_id: service:change-safety
       label: assesses optional change context
       evidence_ids: [upgrade-plan, operating-model]
-    - id: relation:inspection-guidance-application
-      kind: calls
-      source_id: service:inspection
-      target_id: service:guidance-application
-      label: validates Guidance application evidence
-      evidence_ids: [upgrade-plan, operating-model]
     - id: relation:visual-html
       kind: depends_on
       source_id: service:html-report
@@ -188,9 +176,6 @@ current:
         - id: step:inspect-snapshot
           entity_id: service:snapshot
           action: collect current repository evidence
-        - id: step:inspect-guidance
-          entity_id: service:guidance-application
-          action: validate structured Guidance decision evidence
         - id: step:inspect-visual
           entity_id: service:visual-model
           action: build a renderer-neutral document when requested
@@ -262,13 +247,6 @@ desired:
       locator: src/moth/inspection.py
       expectation: REQUIRED
       evidence_ids: [upgrade-plan, operating-model]
-    - id: service:guidance-application
-      kind: service
-      name: Guidance application evidence
-      responsibility: Validate structured decision influence and conflict evidence independently from activation receipts.
-      locator: src/moth/guidance_application.py
-      expectation: REQUIRED
-      evidence_ids: [upgrade-plan, operating-model]
     - id: service:architecture-model
       kind: service
       name: Architecture model
@@ -317,13 +295,6 @@ desired:
       source_id: service:inspection
       target_id: service:change-safety
       label: assesses optional change context
-      expectation: REQUIRED
-      evidence_ids: [upgrade-plan, operating-model]
-    - id: relation:inspection-guidance-application
-      kind: calls
-      source_id: service:inspection
-      target_id: service:guidance-application
-      label: validates Guidance application evidence
       expectation: REQUIRED
       evidence_ids: [upgrade-plan, operating-model]
     - id: relation:web-app-service

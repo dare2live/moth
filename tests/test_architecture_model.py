@@ -1369,7 +1369,6 @@ def test_moth_self_hosting_import_graph_verification_matches_accepted_anchors() 
         "relation:inspection-snapshot",
         "relation:project-architecture",
         "relation:inspection-change-safety",
-        "relation:inspection-guidance-application",
         "relation:visual-html",
         "relation:web-service-inspection",
         "relation:web-service-visual",
@@ -1399,7 +1398,13 @@ def test_moth_self_hosting_import_graph_verification_matches_accepted_anchors() 
     }
 
     assert len(confirmed_ids) == 8, confirmed_ids
-    assert not_observed_ids == {"relation:inspection-guidance-application"}
+    # 2026-09-08: relation:inspection-guidance-application (previously the sole
+    # NOT_OBSERVED member here -- inspection.py never actually imported
+    # guidance_application, decision_context.py did) was removed from
+    # .moth/architecture.yaml along with the retired guidance-application
+    # evidence layer; see docs/migration-next.md. Nothing declared now claims
+    # an import the source tree does not have, so this set is empty.
+    assert not_observed_ids == set()
     assert not_verifiable_ids == {
         "relation:web-console-api",
         "relation:web-launcher-server",

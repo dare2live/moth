@@ -17,7 +17,6 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
         task_kind,
         run_id,
         receipts,
-        application_reports,
         codex_home,
     ):
         captured_call.update(
@@ -26,7 +25,6 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
                 "task_kind": task_kind,
                 "run_id": run_id,
                 "receipts": receipts,
-                "application_reports": application_reports,
                 "codex_home": codex_home,
             }
         )
@@ -74,46 +72,8 @@ def test_inspect_is_single_moth_entry_for_snapshot_and_task_guidance(
         "task_kind": "architecture_orchestration",
         "run_id": "run-001",
         "receipts": [],
-        "application_reports": [],
         "codex_home": tmp_path,
     }
-
-
-def test_inspect_passes_structured_application_reports(
-    capsys, monkeypatch, tmp_path
-) -> None:
-    reports_path = tmp_path / "application-reports.json"
-    reports_path.write_text('[{"source_id": "mio"}]\n', encoding="utf-8")
-    captured = {}
-
-    def fake_inspection(_profile, **kwargs):
-        captured.update(kwargs)
-        return {
-            "schema_version": "moth.inspection.v1",
-            "status": "PASS",
-            "project_health": "PASS",
-            "context_readiness": "READY",
-            "snapshot": {"status": "PASS"},
-            "orchestration": {"decision_context": {}},
-        }
-
-    monkeypatch.setattr("moth.cli.build_inspection", fake_inspection)
-
-    code = main(
-        [
-            "inspect",
-            "--repo",
-            str(tmp_path),
-            "--application-reports",
-            str(reports_path),
-            "--format",
-            "json",
-        ]
-    )
-
-    assert code == 0
-    assert captured["application_reports"] == [{"source_id": "mio"}]
-    assert json.loads(capsys.readouterr().out)["status"] == "PASS"
 
 
 def test_inspect_can_render_self_contained_html(capsys, monkeypatch, tmp_path) -> None:

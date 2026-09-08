@@ -78,16 +78,24 @@ stages:
     evidence:
       - src/moth/guidance_registry.py
       - src/moth/decision_context.py
-      - src/moth/guidance_application.py
-      - src/moth/guidance_application_policy.yaml
       - src/moth/orchestration.py
       - src/moth/inspection.py
       - schemas/moth.decision-context.schema.json
-      - schemas/moth.guidance-application.schema.json
-      - tests/test_guidance_application.py
       - tests/test_decision_context.py
       - tests/test_cli.py
-    residual: []
+    residual:
+      - 2026-09-08 the guidance-application evidence layer built in this stage
+        (src/moth/guidance_application.py, src/moth/guidance_application_policy.yaml,
+        schemas/moth.guidance-application.schema.json, tests/test_guidance_application.py)
+        was retired and deleted. An independent review found no host ever produced
+        application reports - the receipt/application loop was wired only for the
+        Codex host, whose receipt writer is the repo's only producer, and the
+        user's current host has no matching skill install - so the layer was
+        exercised only by its own tests, never by a real consumer. It was not
+        retired for depending on PLATFORM_VERIFIED; its policy accepted
+        SELF_ATTESTED bindings and reached APPLIED_WITH_EVIDENCE on them.
+        Activation receipts (decision_context.py, retained) remain a
+        separate, still-active contract; see docs/migration-next.md for detail.
   - id: stage_3
     title: 最小可视化闭环
     state: COMPLETE

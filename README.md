@@ -188,14 +188,17 @@ after the host reads each Skill; only host-native trusted telemetry may produce
 `READY`. Absolute paths, Skill bodies, task text, amend trails, and raw receipt
 working files are removed from public inspection output.
 
-After executing the plan, a controller may pass a bounded
-`moth.guidance-application.v1` JSON array with `--application-reports`.
-Reports are bound to the run and current Skill digest and must name influenced
-decisions, evidence, and any structured conflict resolution. Missing, stale,
-invalid, or evidence-free reports remain `NOT_CLAIMED`; application evidence
-does not turn executor self-attestation into host verification. The report's
-`contract_id` and `loaded_at` must match its activation receipt, and every
-evidence reference must resolve in the current project-model evidence registry.
+Moth previously accepted a bounded `moth.guidance-application.v1` JSON array
+via `--application-reports`, letting a controller claim which decisions each
+loaded Guidance source influenced. That layer is retired as of 2026-09: an
+independent review found no host ever produced these reports — the
+receipt/application loop was wired only for the Codex host (its receipt
+writer, `plugins/moth/skills/moth/scripts/make_activation_receipts.py`, is the
+only thing in the repo that emits one, and it stamps a fixed
+`codex-moth-skill` executor), and other hosts have no matching Skill install —
+so the mechanism was exercised only by its own tests, never by a real
+consumer. `context_readiness` now reflects only discovery and
+activation-receipt state. See `docs/migration-next.md` for detail.
 
 The same `inspect` entry can render `moth.visual-document.v1` as a self-contained
 HTML project atlas. The renderer consumes only that normalized document; it

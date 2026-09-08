@@ -93,20 +93,6 @@ def _portable_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     return sanitize_public_value(public_snapshot)
 
 
-def _project_evidence_ids(snapshot: dict[str, Any]) -> set[str]:
-    project_model = snapshot.get("project_model")
-    if not isinstance(project_model, dict):
-        return set()
-    evidence = project_model.get("evidence")
-    if not isinstance(evidence, list):
-        return set()
-    return {
-        item["id"]
-        for item in evidence
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
-    }
-
-
 def build_inspection(
     profile: Any,
     *,
@@ -114,7 +100,6 @@ def build_inspection(
     run_id: str,
     receipts: list[dict[str, Any]],
     codex_home: str | Path,
-    application_reports: list[dict[str, Any]] | None = None,
     change_phase: str | None = None,
     changed_files: list[str] | None = None,
     gate_names: list[str] | None = None,
@@ -135,8 +120,6 @@ def build_inspection(
         run_id=run_id,
         receipts=receipts,
         codex_home=codex_home,
-        application_reports=application_reports,
-        available_evidence_ids=_project_evidence_ids(raw_snapshot),
     )
     project_health = str(raw_snapshot.get("status", "FAIL"))
     readiness = orchestration["decision_context"]["context_readiness"]

@@ -35,10 +35,6 @@ def test_decision_context_schema_freezes_orthogonal_states_and_receipts() -> Non
         "INVALID",
         "STALE",
     ]
-    assert guidance["application_state"]["enum"] == [
-        "NOT_CLAIMED",
-        "APPLIED_WITH_EVIDENCE",
-    ]
     receipt = schema["properties"]["activation_receipts"]["items"]
     assert set(receipt["required"]) == {
         "source_id",
@@ -46,31 +42,16 @@ def test_decision_context_schema_freezes_orthogonal_states_and_receipts() -> Non
         "attestation_kind",
     }
     assert receipt["additionalProperties"] is False
-    application = schema["properties"]["guidance_applications"]["items"]
-    assert set(application["required"]) == {
-        "source_id",
-        "report_state",
-        "application_state",
-        "contract_id",
-        "loaded_at",
-        "decision_summary",
-        "evidence_refs",
-        "decisions_influenced",
-        "conflicts",
-    }
-    assert application["properties"]["report_state"]["enum"] == [
-        "NONE",
-        "VALID",
-        "INVALID",
-        "STALE",
-    ]
-    decision = application["properties"]["decisions_influenced"]["items"]
-    assert set(decision["required"]) == {
-        "decision_id",
-        "summary",
-        "evidence_refs",
-    }
-    assert application["additionalProperties"] is False
+    # The guidance-application evidence layer (schema field "guidance_applications")
+    # was retired 2026-09 because no host ever produced application reports, so it
+    # had no consumer outside its own tests. It did NOT depend on an unreachable
+    # activation state: its policy accepted SELF_ATTESTED and reached
+    # APPLIED_WITH_EVIDENCE on it. See docs/migration-next.md.
+    assert "guidance_applications" not in schema["properties"]
+    assert "application_readiness" not in schema["properties"]
+    assert "missing_application_sources" not in schema["properties"]
+    # The deleted subtrees were $defs/ref_list's only consumers; it went with them.
+    assert set(schema["$defs"]) == {"id", "id_list"}
 
 
 def test_runtime_decision_context_validates_against_schema() -> None:
