@@ -254,6 +254,9 @@ def _validate_references(
                         f"architecture {relation['id']} references unknown entity "
                         f"{relation[endpoint]}"
                     )
+        known_states = {
+            name for machine in state["state_machines"] for name in machine["states"]
+        }
         for flow in state["flows"]:
             for step in flow["steps"]:
                 if step["entity_id"] not in entity_ids:
@@ -261,6 +264,12 @@ def _validate_references(
                         f"architecture {flow['id']} references unknown entity "
                         f"{step['entity_id']}"
                     )
+                for endpoint in ("from_state", "to_state"):
+                    if endpoint in step and step[endpoint] not in known_states:
+                        issues.append(
+                            f"architecture {flow['id']} references unknown state "
+                            f"{step[endpoint]}"
+                        )
         for machine in state["state_machines"]:
             if machine["entity_id"] not in entity_ids:
                 issues.append(

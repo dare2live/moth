@@ -1,5 +1,5 @@
 schema_version: moth.compatibility-matrix.v1
-observed_at: 2026-07-23
+observed_at: 2026-08-26
 policy:
   compatibility_authority: runtime_capability_and_output_contract
   version_ceiling: null
@@ -82,7 +82,7 @@ components:
     authority: current Codex Skill catalog and activation receipt digest
   moth-plugin:
     role: single_user_facing_entry
-    observed_version: 1.0.0+codex.20260723205632
+    observed_version: 1.0.0+codex.20260826120000
     version_constraint: null
     required_capabilities:
       - inspect_json

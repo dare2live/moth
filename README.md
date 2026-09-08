@@ -67,6 +67,23 @@ the excluded total is reported as `ignored_count` in the diff (never silently
 dropped). Profiles can override the list with `complexity_ignored_path_parts`
 (set `[]` to disable filtering).
 
+## DuckDB storage (free blocks, not file size)
+
+`file_size` assertion bands are a ratchet: they rise with legitimate growth
+and cannot see `DROP` / `DELETE` / `UPDATE` that leave dead blocks inside the
+same file. DuckDB `CHECKPOINT` does not shrink the file.
+
+Every snapshot scans `data/*.duckdb` (skips `*_precompact*` / `*_bak*`) and
+warns when `pragma_database_size` shows `free_blocks/total_blocks` at or
+above 10% **and** the hole is large enough to matter (at least 16MiB wasted
+or 64 blocks). Tiny files twitching at 3/29 blocks are not the incident.
+That 10% is an engine default for *discovery*, not a project threshold.
+Blocking numbers stay in the target repo's assertion packs.
+
+New database files (a split `org_holding.duckdb`, a new `market.duckdb`) are
+picked up by the glob even if nobody added a claim yet. Compact remains a
+writer-side duty; Moth only reports.
+
 ## Local install
 
 Use a Python 3.11+ interpreter for the virtualenv. If your default `python3`

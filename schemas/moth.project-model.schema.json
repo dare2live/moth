@@ -113,6 +113,12 @@
       "type": "array",
       "items": {"$ref": "#/$defs/evidence"}
     },
+    "import_graph": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/importGraph"}
+      ]
+    },
     "coverage": {
       "type": "object",
       "required": ["detectors", "issues", "warnings"],
@@ -147,6 +153,51 @@
       "items": {"type": "string"},
       "uniqueItems": true
     },
+    "importGraph": {
+      "type": "object",
+      "required": ["state", "roots", "modules", "edges", "omitted", "notes", "issues"],
+      "properties": {
+        "state": {"enum": ["OK", "NOT_CONFIGURED", "INVALID"]},
+        "roots": {"type": "array", "items": {"type": "string"}},
+        "modules": {"type": "array", "items": {"type": "string"}},
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "target", "locations"],
+            "properties": {
+              "source": {"type": "string"},
+              "target": {"type": "string"},
+              "locations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "line"],
+                  "properties": {
+                    "path": {"$ref": "#/$defs/relativePath"},
+                    "line": {"type": "integer", "minimum": 1}
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "omitted": {
+          "type": "object",
+          "required": ["files", "edges"],
+          "properties": {
+            "files": {"type": "integer", "minimum": 0},
+            "edges": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "issues": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
     "evidence": {
       "type": "object",
       "required": ["id", "kind", "locator", "sha256"],
@@ -172,7 +223,9 @@
         "locator": {"$ref": "#/$defs/relativePath"},
         "evidence_ids": {"$ref": "#/$defs/evidenceIds"},
         "source": {"$ref": "#/$defs/provenanceSource"},
-        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]},
+        "import_module": {"type": "string", "minLength": 1},
+        "import_scope": {"enum": ["outside"]}
       },
       "additionalProperties": false
     },
@@ -211,7 +264,8 @@
         "evidence_ids": {"$ref": "#/$defs/evidenceIds"},
         "source": {"$ref": "#/$defs/provenanceSource"},
         "order": {"type": "integer", "minimum": 1},
-        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]}
+        "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]},
+        "verification": {"$ref": "#/$defs/relationVerification"}
       },
       "additionalProperties": false
     },
@@ -226,6 +280,29 @@
           }
         }
       ]
+    },
+    "relationVerification": {
+      "type": "object",
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {
+          "enum": ["CONFIRMED_BY_IMPORT", "NOT_OBSERVED", "NOT_VERIFIABLE"]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "line"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "line": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "step": {
       "type": "object",
@@ -405,7 +482,8 @@
         "status": {"enum": ["VIOLATION", "UNVERIFIABLE", "CONFORMANT"]},
         "reason": {"type": "string"},
         "declaration_evidence_ids": {"$ref": "#/$defs/evidenceIds"},
-        "observation_evidence_ids": {"$ref": "#/$defs/evidenceIds"}
+        "observation_evidence_ids": {"$ref": "#/$defs/evidenceIds"},
+        "observation_basis": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
     },

@@ -7,6 +7,9 @@ limits:
   relations_per_layer: 160
   findings_per_layer: 50
   evidence_per_layer: 500
+  # N2: 一条关系最多带几条 verification.locations(代码坐标)—— 超出的数量必须
+  # 如实写成 omitted_locations 计数, 不能悄悄截断。
+  verification_locations_per_relation: 3
 status_labels:
   PASS: 状态稳定
   WARN: 需要谨慎
@@ -39,7 +42,70 @@ viewpoints:
     layer_ids: [overview, flows, evidence]
   - id: system
     label: 系统视角
-    layer_ids: [architecture, stack, code, evidence]
+    layer_ids: [architecture, stack, code, flows, evidence]
   - id: risk
     label: 风险视角
     layer_ids: [overview, code, evidence]
+diagram:
+  sparse_rule:
+    min_edges: 2
+    min_connected_ratio: 0.5
+  axis_note: 纵向位置 = 本图边集内的最长路径，不代表调用层级、架构分层或启动顺序。
+  unconnected_note: 没有任何已知关系
+  provenance_legend:
+    - id: CONFIRMED
+      label: 声明且被代码证实
+      line: solid
+    - id: DETECTED
+      label: 代码里扫描到
+      line: solid
+    - id: DECLARED
+      label: 仅来自声明文件
+      line: dashed
+  kind_reading:
+    - id: calls
+      label: A 调用 B
+    - id: depends_on
+      label: A 依赖 B，数据可能从 B 流向 A
+    - id: writes
+      label: A 写入 B
+    - id: uses_runtime
+      label: A 运行在 B 上
+    - id: imports
+      label: A 静态导入 B
+  # N3: verification.reason -> 大白话, 只在关系是 DECLARED 且没有代码坐标时才用得上
+  # (CONFIRMED/DETECTED 直接展示坐标, 不需要解释"为什么没有")。reason 可能带一个用
+  # "; " 拼接的动态导入标记后缀(architecture_model._dynamic_import_marker), 消费方
+  # 只用分号前的主码来查这张表。id 取自 architecture_model._verify_relations_
+  # against_import_graph 实际会写出的 reason 码, 不是随便编的。
+  verification_reason_labels:
+    - id: not_observed_in_static_imports
+      label: 静态 import 中未见
+    - id: cross_language
+      label: import 图无法验证（跨语言）
+    - id: non_python_locator
+      label: import 图无法验证（非 Python 定位符）
+    - id: kind_outside_import_scope
+      label: import 图无法验证（关系类型不在 import 范围内）
+    - id: import_graph_not_configured
+      label: import 图未配置，无法验证
+terms:
+  OBSERVED: 至少有一部分是扫描出来的 —— 具体几个看下面的来源拆分
+  DECLARED_ONLY: 全部来自项目手写的声明文件, 没有一个是扫描出来的
+  DECLARED: 项目自己写下的目标结构
+  NOT_DECLARED: 还没写下目标结构 —— 不是错, 是没声明
+  NOT_OBSERVED: 既没扫到, 也没声明
+  PARTIAL: 只覆盖了一部分, 其余没查到
+  CONFORMANT: 写下的和看到的一致
+  DETECTED: 扫描代码或清单文件读出来的
+  CONFIRMED: 声明里写了, 扫描也独立看到了
+  VIOLATION: 写下的和看到的对不上
+  UNVERIFIABLE: 证据不够, 判不了一致与否
+  CONFIRMED_BY_IMPORT: 这条关系不仅声明了, 还被 import 图独立验证到
+  NOT_VERIFIABLE: 关系不在 import 图能验证的范围内（跨语言/非 Python/图未配置等）, 判不出有没有被代码证实
+  AVAILABLE: 这项检查跑过了
+  NOT_CHECKED: 这项没查 —— 不等于没问题
+  TOOL_UNAVAILABLE: 所需工具不在, 这项无从查起
+  EXPECTED_REQUIRED: 目标结构要求有这个
+  EXPECTED_FORBIDDEN: 目标结构要求没有这个
+  UNKNOWN: 查不出来, 没有替它猜一个

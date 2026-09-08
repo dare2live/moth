@@ -32,6 +32,28 @@ vocabulary:
     - depends_on
     - contains
     - synchronizes
+    - imports
   expectations:
     - REQUIRED
     - FORBIDDEN
+  # Phase 2: import-graph-backed three-tier relation verification
+  # (architecture_model._verify_relations_against_import_graph). A Python
+  # `calls` relation must go through an import first (dynamic import aside),
+  # so absence of an import edge actually refutes it. depends_on/writes/reads/
+  # etc. can be real (DB, files, HTTP, a subprocess) without ever importing the
+  # other side -- 2026-09-07 measured case: service:html-report depends_on
+  # service:visual-model, and html_report.py imports zero moth modules (the
+  # real caller is cli.py, and the data flow direction is reversed). Scoring
+  # that NOT_OBSERVED would frame a true relation as a false one.
+  refutable_relation_kinds:
+    - calls
+  confirmable_relation_kinds:
+    - uses_runtime
+    - calls
+    - reads
+    - writes
+    - publishes
+    - subscribes
+    - depends_on
+    - contains
+    - synchronizes

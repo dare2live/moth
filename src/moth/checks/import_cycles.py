@@ -1,4 +1,4 @@
-"""Import-cycle check — AST import graph + iterative Tarjan SCC (泛化自 lifehack
+"""Import-cycle check — Tarjan SCC over the shared AST import graph (泛化自 lifehack
 backend_import_cycle_audit 的机制, 不 import lifehack 代码).
 
 Why: import 环运行时能跑 (Python 事后补 module), 但重构时脆、拖慢冷启动、
@@ -19,101 +19,65 @@ allowlist JSON 格式 (兼容 lifehack config/architecture_known_cycles.json):
 new_count > 0 → FAIL。scan_paths 为空/全部不存在 → PASS + note (可选功能, 未配置不惩罚)。
 fail-closed: allowlist 配置了但缺失/坏 JSON → FAIL (配置错误不静默)。
 
-已知限界 (与 lifehack 参考实现一致): `from pkg.sub import name` 解析到模块
-`pkg.sub` 本身 —— name 是子模块时不再细化到 `pkg.sub.name`; 完整路径
-import (`import pkg.sub.name` / `from pkg.sub.name import x`) 才有子模块粒度边。
+Phase 2 重构 (2026-09-07): AST 解析/图构建不再自己走一遍, 改为消费
+``moth.checks.import_graph.build_import_graph`` 产出的共享图 (单一计算点)。
+本模块只负责: 把 (scan_paths, package_prefix) 机械换算成 import_graph 的
+``roots``, 调共享图, 再按 scan_paths (来源) / package_prefix (去向) 过滤出
+旧接口约定的 ``dict[module, set[module]]`` 形状喂给 Tarjan —— Tarjan 逻辑与
+对外返回结构不变。这也带来一个精度修复: `from pkg import sub` 且 `pkg.sub`
+真是一个已知模块时, 边指向 `pkg.sub` 而不再粗地并到 `pkg` (旧实现只看
+`node.module` 字符串, 完全忽略被 import 的名字)。
 """
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 from typing import Any
 
-
-def _module_name_for(path: Path, root: Path, package_prefix: str = "") -> str:
-    """算出一个文件的**真** import 名, 而不是它的路径。
-
-    2026-08-17 实测的坑: src-layout 仓(``src/moth/…``)下, 按路径拼出来的名字是
-    ``src.moth.report``, 而源码里写的是 ``from moth.report import …`` —— 图的节点名与边的
-    目标名分属两套命名, 于是一条边都连不上。moth 对自己跑 ``moth cycles`` 得到
-    module_count=62 / edge_count=0 / verdict=PASS, 一道**假绿**的门, 任何 src 布局都会中。
-
-    规则: 从路径里 package_prefix 第一次出现的那一段起算 —— 那才是包根。
-    找不到 package_prefix 时退回旧的按路径拼(flat-layout 下二者本就一致)。
-    """
-    rel = path.relative_to(root).with_suffix("")
-    parts = list(rel.parts)
-    if parts and parts[-1] == "__init__":
-        parts = parts[:-1]
-    if package_prefix and package_prefix in parts:
-        parts = parts[parts.index(package_prefix):]
-    return ".".join(parts)
-
-
-def _resolve_relative(base_module: str, level: int, name: str | None) -> str | None:
-    parts = base_module.split(".")
-    if level > len(parts):
-        return None
-    base = parts[: len(parts) - level] if level else parts
-    if name:
-        base = base + name.split(".")
-    return ".".join(base) if base else None
+from moth.checks.import_graph import build_import_graph
+from moth.checks.import_graph import resolve_root_and_prefix
 
 
 def _matches_prefix(target: str, package_prefix: str) -> bool:
     return target == package_prefix or target.startswith(package_prefix + ".")
 
 
-def _import_targets_for_node(node: ast.AST, module_name: str, package_prefix: str) -> set[str]:
-    if isinstance(node, ast.Import):
-        return {alias.name for alias in node.names if _matches_prefix(alias.name, package_prefix)}
-    if isinstance(node, ast.ImportFrom):
-        if node.level:
-            resolved = _resolve_relative(module_name, node.level, node.module)
-            return {resolved} if resolved and _matches_prefix(resolved, package_prefix) else set()
-        if node.module and _matches_prefix(node.module, package_prefix):
-            return {node.module}
-    return set()
-
-
-def _collect_imports(
-    path: Path, root: Path, scan_modules: set[str], package_prefix: str
-) -> tuple[str, set[str]]:
-    module_name = _module_name_for(path, root, package_prefix)
-    targets: set[str] = set()
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
-    except SyntaxError:
-        return module_name, targets
-    for node in ast.walk(tree):
-        targets.update(_import_targets_for_node(node, module_name, package_prefix))
-    matched = {
-        target
-        for target in targets
-        if any(target == m or target.startswith(m + ".") for m in scan_modules)
-    }
-    return module_name, matched
-
-
 def _build_module_graph(
     base: Path, scan_paths: list[str], package_prefix: str
 ) -> tuple[dict[str, set[str]], list[str]]:
-    module_roots = [base / entry for entry in scan_paths if (base / entry).is_dir()]
+    """旧接口的适配层: 从共享 import_graph 里按 scan_paths/package_prefix 过滤出
+    `dict[module, set[module]]`，保持这次重构前的对外形状 (module_count/edge_count
+    的计算方式、cycle 检出逻辑都不变)。"""
+
+    base = Path(base).resolve()
+    existing = [entry for entry in scan_paths if (base / entry).is_dir()]
     missing = [entry for entry in scan_paths if not (base / entry).is_dir()]
-    # 用**真包名**当扫描前缀。此前这里是按目录路径拼(src/moth -> "src.moth"),
-    # 和源码里写的 "moth.xxx" 对不上, 结果整张图被前缀过滤清空(见 _module_name_for 的注释)。
-    scan_modules = {
-        _module_name_for(root_dir / "__init__.py", base, package_prefix)
-        or ".".join(root_dir.relative_to(base).parts)
-        for root_dir in module_roots
-    }
-    files = [path for root_dir in module_roots for path in sorted(root_dir.rglob("*.py"))]
+    if not existing:
+        return {}, missing
+
+    root_prefix_pairs = [resolve_root_and_prefix(entry, package_prefix) for entry in existing]
+    roots: list[str] = []
+    for root, _prefix in root_prefix_pairs:
+        if root not in roots:
+            roots.append(root)
+    scan_prefixes = [prefix for _root, prefix in root_prefix_pairs]
+
+    full_graph = build_import_graph(base, roots=roots, excludes=[])
+
+    edges_by_source: dict[str, set[str]] = {}
+    for edge in full_graph["edges"]:
+        edges_by_source.setdefault(edge["source"], set()).add(edge["target"])
 
     graph: dict[str, set[str]] = {}
-    for path in files:
-        module_name, targets = _collect_imports(path, base, scan_modules, package_prefix)
-        graph.setdefault(module_name, set()).update(targets)
+    for module in full_graph["modules"]:
+        if not any(_matches_prefix(module, prefix) for prefix in scan_prefixes):
+            continue
+        targets = {
+            target
+            for target in edges_by_source.get(module, set())
+            if _matches_prefix(target, package_prefix)
+        }
+        graph[module] = targets
     return graph, missing
 
 

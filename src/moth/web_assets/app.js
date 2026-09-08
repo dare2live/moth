@@ -109,6 +109,8 @@
     CONFIRMED: "声明里写了, 扫描也独立看到了",
     VIOLATION: "写下的和看到的对不上",
     UNVERIFIABLE: "证据不够, 判不了一致与否",
+    CONFIRMED_BY_IMPORT: "这条关系不仅声明了, 还被 import 图独立验证到",
+    NOT_VERIFIABLE: "关系不在 import 图能验证的范围内（跨语言/非 Python/图未配置等）, 判不出有没有被代码证实",
     AVAILABLE: "这项检查跑过了",
     NOT_CHECKED: "这项没查 —— 不等于没问题",
     TOOL_UNAVAILABLE: "所需工具不在, 这项无从查起",
@@ -359,13 +361,11 @@
   // 所以关系过少时不画连线图, 改按 kind 分组展示, 并说明为什么没有连线。
   // 节点宽度按**实际最长名**自适应, 不写死: 实测 moth 的 20 个标签里 12 个被 132px 截断
   // ("Change safety a…"), 图的可读性直接减半 —— 而"看懂组件叫什么"正是学架构的起点。
-  const NODE_H = 34, GAP_X = 22, GAP_Y = 58, PAD = 16;
+  // 节点两行(名字 + 定位), 高度得跟着两行文字调 —— 34px 只够放一行。
+  const NODE_H = 44, GAP_X = 22, GAP_Y = 64, PAD = 16, SUB_LABEL_DY = 15;
   const NODE_W_MIN = 132, NODE_W_MAX = 240, CHAR_PX = 7.2;
-  const KIND_COLOR = {
-    application: "#2f6f4f", service: "#3a5a8c", module: "#6b4f8a",
-    runtime: "#8a6a2f", framework: "#8a4f4f", platform: "#4f7a8a",
-    project: "#444", composition: "#666"
-  };
+  // diagram_policy 缺失(旧文档)时的兜底 —— 数值来自 visual_policy.yaml 当前的默认值。
+  const DEFAULT_SPARSE_RULE = { min_edges: 2, min_connected_ratio: 0.5 };
 
   function assignLayers(nodeIds, relations) {
     // 最长路径分层: 无入边者为第 0 层, 其余取前驱层+1。有环时按已达层数截断。
@@ -388,45 +388,229 @@
     return layer;
   }
 
-  function architectureDiagram(entities, relations) {
+  function diagramPolicy() {
+    return state.document?.diagram_policy || null;
+  }
+
+  // 稀疏判据的两个数从 diagram_policy.sparse_rule 读, 不再硬编码 —— 这两个数
+  // 是"这张图还算不算得上在表达结构"的判据, 项目应该能按自己的连接密度调它。
+  // diagram_policy 是可选字段(旧文档可能没有), 缺失时退回脚本原来的默认值。
+  function sparseRule() {
+    const raw = diagramPolicy()?.sparse_rule || {};
+    return {
+      min_edges: typeof raw.min_edges === "number" ? raw.min_edges : DEFAULT_SPARSE_RULE.min_edges,
+      min_connected_ratio: typeof raw.min_connected_ratio === "number"
+        ? raw.min_connected_ratio
+        : DEFAULT_SPARSE_RULE.min_connected_ratio
+    };
+  }
+
+  // provenance -> 线型(solid/dashed) 的映射来自 diagram_policy.provenance_legend,
+  // 不在这里硬编码 —— "证实到什么程度才画实线"是 policy 的判断, 不是前端的判断。
+  function provenanceLineStyles(policy) {
+    const map = {};
+    (policy?.provenance_legend || []).forEach((item) => {
+      if (item && item.id) map[item.id] = item.line === "dashed" ? "dashed" : "solid";
+    });
+    return map;
+  }
+
+  function basename(path) {
+    const parts = String(path || "").split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : String(path || "");
+  }
+
+  // N3: verification.reason -> 大白话的映射来自 diagram_policy.verification_reason_labels,
+  // 不在这里硬编码中文文案。reason 可能带一个用 "; " 拼接的动态导入标记后缀
+  // (architecture_model._dynamic_import_marker 加的), 只用分号前的主码去查表 ——
+  // 查不到就显式标"未登记原因", 不静默吞掉、也不编一个像的(与 kindReading 的
+  // "未登记读法"同一套规矩)。
+  function verificationReasonText(policy, reason) {
+    const raw = String(reason || "").trim();
+    const code = raw.split(";")[0].trim();
+    const map = new Map((policy?.verification_reason_labels || []).map((item) => [item.id, item.label]));
+    return map.get(code) || `未登记原因: ${code || raw || "unknown"}`;
+  }
+
+  function locationText(locations) {
+    const list = (locations || []).filter((item) => item && item.path && item.line);
+    if (!list.length) return "";
+    return list.map((item) => `${item.path}:${item.line}`).join(", ");
+  }
+
+  // 边的 hover 提示在原有 label 基础上追加"来源 + 证据": 来源文案取自
+  // diagram_policy.provenance_legend(与图例同一份数据, 不重编一份)。
+  // CONFIRMED/DETECTED 且带 verification.locations 时附代码坐标(path:line);
+  // DECLARED 没有坐标, 只能附 verification.reason 翻成的大白话说明"为什么没有"。
+  // relation.source 查不到时(既有行为)整句都不追加, 不猜一个来源出来。
+  function edgeProvenanceSuffix(relation, policy) {
+    const source = relation.source;
+    if (!source) return "";
+    const legend = new Map((policy?.provenance_legend || []).map((item) => [item.id, item.label]));
+    const sourceLabel = legend.get(source);
+    if (!sourceLabel) return "";
+    const verification = relation.verification;
+    if (verification && (source === "CONFIRMED" || source === "DETECTED")) {
+      const loc = locationText(verification.locations);
+      if (loc) return `${sourceLabel} · ${loc}`;
+    }
+    if (verification && source === "DECLARED" && verification.reason) {
+      return `${sourceLabel} · ${verificationReasonText(policy, verification.reason)}`;
+    }
+    return sourceLabel;
+  }
+
+  // 节点第二行: 回答"改这个组件该动哪个文件"。locator 优先(most entities);
+  // 没有 locator 但有 entrypoint 的(如 python_console_script)退到 entrypoint;
+  // 两者都没有就不画第二行 —— 不编一个出来。
+  function nodeLocatorLabel(entity) {
+    const attrs = entity.attributes || {};
+    if (attrs.locator) return basename(attrs.locator);
+    if (attrs.entrypoint) return String(attrs.entrypoint);
+    return "";
+  }
+
+  // 图头一行: 组件数 / 关系数 / 箭头怎么读, 外加 policy 给的坐标轴免责声明 ——
+  // 没有这句, 纵向位置会被读成调用层级、架构分层或启动顺序, 而它只是最长路径。
+  function architectureMeta(ids, edges, policy, asIs) {
+    const meta = node("div", null, "arch-meta");
+    const axisNote = policy?.axis_note || "";
+    const headline = node("p");
+    headline.textContent =
+      `${ids.length} 个组件 · ${edges.length} 条关系 · 箭头 = 关系方向（读法见图例）` +
+      (axisNote ? ` ${axisNote}` : "");
+    meta.append(headline);
+    // complete 键**不存在**是"项目没声明", 不是 false —— 只有显式声明为 false
+    // 才提醒"画出来的不是全部", 用 hasOwnProperty 把两种情况分开, 不能用 `!asIs.complete` 判断。
+    if (asIs && Object.prototype.hasOwnProperty.call(asIs, "complete") && asIs.complete === false) {
+      meta.append(node(
+        "p",
+        "这份架构声明自称不完整（complete: false），未画出的组件不等于不存在",
+        "arch-meta-note"
+      ));
+    }
+    return meta;
+  }
+
+  // 图例只列**这张图上真的有的**: provenance 来源和 relation kind 都从边集里现算,
+  // 不遍历 policy 的全量表 —— 全量表里的东西这张图不一定出现过, 遍历全量表就是
+  // 在编"读法", 而不是在报告"这张图实际用到了什么"。
+  function architectureLegend(edges, policy) {
+    const legend = node("div", null, "arch-legend");
+    const provenanceUsed = new Set(edges.map((r) => r.source).filter(Boolean));
+    const provenanceItems = (policy?.provenance_legend || []).filter((item) => provenanceUsed.has(item.id));
+    const kindsUsed = [...new Set(edges.map((r) => r.kind).filter(Boolean))];
+    const kindReading = new Map((policy?.kind_reading || []).map((item) => [item.id, item.label]));
+
+    if (provenanceItems.length) {
+      const group = node("div", null, "arch-legend-group");
+      group.append(node("h3", "来源"));
+      const list = node("ul");
+      provenanceItems.forEach((item) => {
+        const li = node("li");
+        li.append(node("span", null, `legend-swatch ${item.line === "dashed" ? "dashed" : "solid"}`));
+        li.append(node("span", `${item.id} — ${item.label}`));
+        list.append(li);
+      });
+      group.append(list);
+      legend.append(group);
+    }
+
+    if (kindsUsed.length) {
+      const group = node("div", null, "arch-legend-group");
+      group.append(node("h3", "关系读法"));
+      const list = node("ul");
+      kindsUsed.forEach((kind) => {
+        const li = node("li");
+        li.append(node("span", kind, "legend-kind"));
+        // kind_reading 里找不到这个 kind 时, 显式说"未登记读法" —— 不静默跳过
+        // (跳过=读的人以为没有这类关系), 也不编一个读法(编的比没有更误导)。
+        li.append(node("span", kindReading.get(kind) || "未登记读法"));
+        list.append(li);
+      });
+      group.append(list);
+      legend.append(group);
+    }
+
+    return legend.children.length ? legend : null;
+  }
+
+  // 图下锚点句: business_flow / state_machine 不画进架构图(它们是执行顺序记录,
+  // 不是组件), 但看的人得有路子找到它们, 不然这张图会显得"漏画了"。
+  // 数量从 doc.entities 现数, 不写死 —— 写死的数字会在数据变了以后悄悄撒谎。
+  function architectureFlowNote(doc) {
+    const count = Object.values(doc.entities).filter(
+      (e) => e.kind === "business_flow" || e.kind === "state_machine"
+    ).length;
+    if (!count) return null;
+    const p = node("p", null, "arch-flow-note");
+    p.append(document.createTextNode(
+      `此图不包含业务流程与状态机（共 ${count} 个）—— 它们是执行顺序, 不是架构组件。`
+    ));
+    const link = node("button", "查看「模块与流程」", "link-button");
+    link.type = "button";
+    link.addEventListener("click", () => {
+      setNavigationMode("map");
+      renderLayer("flows");
+    });
+    p.append(link);
+    return p;
+  }
+
+  function architectureDiagram(entities, relations, asIs) {
     const ids = entities.map((e) => e.id);
     const idSet = new Set(ids);
     const edges = relations.filter((r) => idSet.has(r.source_id) && idSet.has(r.target_id));
 
-    const box = node("div", null, "arch-diagram");
+    const wrap = node("div", null, "arch-diagram");
     if (!ids.length) return null;
     // 判据是"关系密度"而非"边数下限": chunkymonkey 有 17 个实体却只有 2 条边,
     // `edges.length < 2` 放它过去, 结果是 15 个孤立方块排成 2342px 宽的一行 ——
-    // 那不是架构图, 是一张误导人以为组件互不相关的图。
-    // 要求至少有一半节点被关系连上, 才认为图能表达结构。
+    // 那不是架构图, 是一张误导人以为组件互不相关的图。两个阈值从
+    // diagram_policy.sparse_rule 读, 缺失时兜底 2 条边 / 一半节点连通。
     const connected = new Set();
     edges.forEach((r) => { connected.add(r.source_id); connected.add(r.target_id); });
-    if (edges.length < 2 || connected.size * 2 < ids.length) {
+    const policy = diagramPolicy();
+    const rule = sparseRule();
+    if (edges.length < rule.min_edges || connected.size < ids.length * rule.min_connected_ratio) {
       // 没有足够关系可画 —— 说清楚为什么, 而不是给一张没有连线的图让人以为组件互不相关。
       const hint = node("p", null, "muted");
       hint.textContent =
         `已识别 ${ids.length} 个组件, 其中只有 ${connected.size} 个被关系连接` +
         `(共 ${edges.length} 条关系), 不足以画出能说明结构的图。` +
         "Moth 不会按名称猜测调用关系 —— 关系需要来自代码或声明中的证据。";
-      box.append(hint);
-      return box;
+      wrap.append(hint);
+      return wrap;
     }
+
+    wrap.append(architectureMeta(ids, edges, policy, asIs));
 
     // 先按最长名定宽(留 16px 内边距), 夹在 [MIN, MAX] 之间; 超过 MAX 才截断。
     const longest = Math.max(...entities.map((e) => String(e.name || e.id).length));
     const NODE_W = Math.min(NODE_W_MAX, Math.max(NODE_W_MIN, Math.round(longest * CHAR_PX) + 16));
     const maxChars = Math.floor((NODE_W - 16) / CHAR_PX);
+    const truncate = (text) => (text.length > maxChars ? text.slice(0, maxChars - 1) + "…" : text);
 
-    const layer = assignLayers(ids, edges);
+    // 零边节点单独成区, 不混进第 0 层 —— 混进去会被读成"入口组件", 而它们只是
+    // "没有已知关系", 两件事不能共用同一个视觉位置。
+    const connectedIds = ids.filter((id) => connected.has(id));
+    const unconnectedIds = ids.filter((id) => !connected.has(id));
+
+    const layer = assignLayers(connectedIds, edges);
     const byLayer = new Map();
-    ids.forEach((id) => {
+    connectedIds.forEach((id) => {
       const l = layer.get(id);
       if (!byLayer.has(l)) byLayer.set(l, []);
       byLayer.get(l).push(id);
     });
     const layers = [...byLayer.keys()].sort((a, b) => a - b);
-    const width = PAD * 2 + Math.max(...layers.map((l) => byLayer.get(l).length)) * (NODE_W + GAP_X);
-    const height = PAD * 2 + layers.length * GAP_Y + NODE_H;
+    const layerCols = layers.length ? Math.max(...layers.map((l) => byLayer.get(l).length)) : 0;
+    const unconnectedCols = unconnectedIds.length
+      ? Math.max(Math.ceil(Math.sqrt(unconnectedIds.length)), layerCols, 1)
+      : 0;
+    const unconnectedRows = unconnectedIds.length ? Math.ceil(unconnectedIds.length / unconnectedCols) : 0;
+    const cols = Math.max(layerCols, unconnectedCols, 1);
+    const width = PAD * 2 + cols * (NODE_W + GAP_X);
 
     const pos = new Map();
     layers.forEach((l, li) => {
@@ -436,30 +620,96 @@
         pos.set(id, { x: (width - rowW) / 2 + i * (NODE_W + GAP_X), y: PAD + li * GAP_Y });
       });
     });
+    const mainBottom = layers.length ? PAD + (layers.length - 1) * GAP_Y + NODE_H : PAD;
+
+    // 未连接区: 画在主分层图下方独立的一块, 带一句 unconnected_note 说明
+    // "为什么这些节点没有连线", 不是图没画完。
+    const SECTION_GAP = 36, HEADING_OFFSET = 20;
+    let headingY = null;
+    if (unconnectedIds.length) {
+      headingY = mainBottom + SECTION_GAP;
+      const gridTop = headingY + HEADING_OFFSET;
+      const rowW = unconnectedCols * (NODE_W + GAP_X) - GAP_X;
+      unconnectedIds.forEach((id, i) => {
+        const r = Math.floor(i / unconnectedCols);
+        const c = i % unconnectedCols;
+        pos.set(id, { x: (width - rowW) / 2 + c * (NODE_W + GAP_X), y: gridTop + r * GAP_Y });
+      });
+    }
+    const height =
+      (unconnectedIds.length
+        ? headingY + HEADING_OFFSET + (unconnectedRows - 1) * GAP_Y + NODE_H
+        : mainBottom) + PAD;
 
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("width", String(width));
+    svg.setAttribute("height", String(height));
     svg.setAttribute("class", "arch-svg");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", `架构图: ${ids.length} 个组件, ${edges.length} 条关系`);
 
+    // 两个箭头: 实心配实线(CONFIRMED/DETECTED, 或来源不明的中性关系),
+    // 空心配虚线(DECLARED) —— 线型由 provenanceLineStyles(policy) 决定,
+    // marker 只是跟着线型走的视觉后缀, 不重复判断一次。
+    const defs = document.createElementNS(ns, "defs");
+    const solidMarker = document.createElementNS(ns, "marker");
+    solidMarker.setAttribute("id", "arch-arrow-solid");
+    solidMarker.setAttribute("markerWidth", "8");
+    solidMarker.setAttribute("markerHeight", "8");
+    solidMarker.setAttribute("refX", "7");
+    solidMarker.setAttribute("refY", "4");
+    solidMarker.setAttribute("orient", "auto");
+    const solidPath = document.createElementNS(ns, "path");
+    solidPath.setAttribute("d", "M0,0 L8,4 L0,8 Z");
+    solidPath.setAttribute("class", "arch-arrow-fill");
+    solidMarker.append(solidPath);
+
+    const hollowMarker = document.createElementNS(ns, "marker");
+    hollowMarker.setAttribute("id", "arch-arrow-hollow");
+    hollowMarker.setAttribute("markerWidth", "9");
+    hollowMarker.setAttribute("markerHeight", "9");
+    hollowMarker.setAttribute("refX", "8");
+    hollowMarker.setAttribute("refY", "4.5");
+    hollowMarker.setAttribute("orient", "auto");
+    const hollowPath = document.createElementNS(ns, "path");
+    hollowPath.setAttribute("d", "M0.5,0.5 L8.5,4.5 L0.5,8.5 Z");
+    hollowPath.setAttribute("class", "arch-arrow-hollow-shape");
+    hollowMarker.append(hollowPath);
+
+    defs.append(solidMarker, hollowMarker);
+    svg.append(defs);
+
+    // 箭头方向恒为 source_id -> target_id: 线从 source 底边画到 target 顶边,
+    // marker-end 画在 target 这一端, 不新增/推断任何 direction 字段。
+    const lineStyles = provenanceLineStyles(policy);
     edges.forEach((r) => {
       const a = pos.get(r.source_id), b = pos.get(r.target_id);
       if (!a || !b) return;
       const line = document.createElementNS(ns, "line");
       line.setAttribute("x1", a.x + NODE_W / 2); line.setAttribute("y1", a.y + NODE_H);
       line.setAttribute("x2", b.x + NODE_W / 2); line.setAttribute("y2", b.y);
-      line.setAttribute("class", "arch-edge");
+      // 线型只认 relation.source: 没有这个字段的关系按中性(细实线/无 dash)处理,
+      // 不当成 DECLARED —— "不知道来源"和"只来自声明"是两件不同的事。
+      const style = r.source ? (lineStyles[r.source] || "solid") : "solid";
+      line.setAttribute("class", `arch-edge${style === "dashed" ? " dashed" : ""}`);
+      line.setAttribute("marker-end", `url(#${style === "dashed" ? "arch-arrow-hollow" : "arch-arrow-solid"})`);
       const title = document.createElementNS(ns, "title");
-      title.textContent = r.label || r.kind || "";
+      const base = r.label || r.kind || "";
+      // N3: hover 提示在关系读法基础上追加"来源 + 证据" —— 这是"图上看见"到
+      // "由哪一行代码证实"的桥, 不新起一个面板。
+      const suffix = edgeProvenanceSuffix(r, policy);
+      title.textContent = suffix ? `${base}\n${suffix}` : base;
       line.append(title);
       svg.append(line);
     });
 
-    entities.forEach((e) => {
-      const p = pos.get(e.id);
-      if (!p) return;
+    const entityById = new Map(entities.map((e) => [e.id, e]));
+    [...connectedIds, ...unconnectedIds].forEach((id) => {
+      const e = entityById.get(id);
+      const p = pos.get(id);
+      if (!e || !p) return;
       const g = document.createElementNS(ns, "g");
       g.setAttribute("class", "arch-node");
       g.setAttribute("tabindex", "0");
@@ -468,30 +718,56 @@
       rect.setAttribute("x", p.x); rect.setAttribute("y", p.y);
       rect.setAttribute("width", NODE_W); rect.setAttribute("height", NODE_H);
       rect.setAttribute("rx", "5");
-      rect.setAttribute("fill", KIND_COLOR[e.kind] || "#555");
+      const sub = nodeLocatorLabel(e);
       const label = document.createElementNS(ns, "text");
-      label.setAttribute("x", p.x + NODE_W / 2); label.setAttribute("y", p.y + NODE_H / 2 + 4);
+      label.setAttribute("x", p.x + NODE_W / 2);
+      label.setAttribute("y", p.y + (sub ? NODE_H / 2 - 3 : NODE_H / 2 + 4));
       label.setAttribute("text-anchor", "middle");
       label.setAttribute("class", "arch-label");
-      const name = String(e.name || e.id);
-      label.textContent = name.length > maxChars ? name.slice(0, maxChars - 1) + "…" : name;
+      label.textContent = truncate(String(e.name || e.id));
+      g.append(rect, label);
+      // 第二行: 改这个组件该动哪个文件 —— locator 的 basename, 没有 locator
+      // 就退到 entrypoint; 两者都没有(nodeLocatorLabel 返回空串)就不画这一行。
+      if (sub) {
+        const subLabel = document.createElementNS(ns, "text");
+        subLabel.setAttribute("x", p.x + NODE_W / 2);
+        subLabel.setAttribute("y", p.y + NODE_H / 2 + SUB_LABEL_DY);
+        subLabel.setAttribute("text-anchor", "middle");
+        subLabel.setAttribute("class", "arch-sub-label");
+        subLabel.textContent = truncate(sub);
+        g.append(subLabel);
+      }
       const title = document.createElementNS(ns, "title");
       title.textContent = `${e.name || e.id}\n${e.kind || ""}\n${e.responsibility || ""}`;
+      g.append(title);
       // 点节点 -> 复用既有的实体详情抽屉(kind / 职责 / 属性 / 证据)。
       // 这是"图上看见"到"知道在哪个文件"的桥 —— 没有它, 图停在好看但学不到。
       // 不另造面板: openEntity 已经在做同一件事, 多一个面板就是多一份会漂的实现。
-      // e 就是 doc.entities 里那个对象(itemsById 直接取的引用), 不再二次查表:
-      // 多一次查表就多一条"查不到就静默什么都不做"的分支。
       g.addEventListener("click", () => openEntity(e));
       g.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openEntity(e); }
       });
-      g.append(rect, label, title);
       svg.append(g);
     });
 
-    box.append(svg);
-    return box;
+    if (unconnectedIds.length) {
+      const heading = document.createElementNS(ns, "text");
+      heading.setAttribute("x", PAD);
+      heading.setAttribute("y", headingY);
+      heading.setAttribute("class", "arch-unconnected-label");
+      heading.textContent = `未连接组件 —— ${policy?.unconnected_note || "没有任何已知关系"}`;
+      svg.append(heading);
+    }
+
+    // 只有 svg 本身包在横向滚动容器里 —— 图例和 meta 行留在外面, 滚动查看
+    // 宽图时它们不会跟着滚出视野。
+    const scroller = node("div", null, "arch-diagram-scroll");
+    scroller.append(svg);
+    wrap.append(scroller);
+
+    const legend = architectureLegend(edges, policy);
+    if (legend) wrap.append(legend);
+    return wrap;
   }
 
   // "当前结构"这张卡最容易骗人: 它可以是一份人手写的 yaml, 却读起来像扫描结果。
@@ -503,7 +779,9 @@
     if (!p || !counts) return base;
     const parts = [];
     if (p.detected) parts.push(`${p.detected} 个扫描到`);
-    if (p.confirmed) parts.push(`${p.confirmed} 个声明且被证实`);
+    // confirmed 为 0 时也要显式说出来 —— 这是最该让人警醒的一项("没有一个被独立
+    // 证实"), 静默省略等于把它藏起来。detected / declared 只在非零时才提。
+    parts.push(p.confirmed ? `${p.confirmed} 个声明且被证实` : "0 个被独立证实");
     if (p.declared) parts.push(`${p.declared} 个只来自声明文件`);
     return parts.length ? `${base}（${parts.join("，")}）` : base;
   }
@@ -552,8 +830,10 @@
     const doc = state.document;
     const ents = itemsById(architecture.as_is.entity_ids, doc.entities);
     const rels = itemsById(architecture.as_is.relation_ids, doc.relations);
-    const diagram = architectureDiagram(ents, rels);
+    const diagram = architectureDiagram(ents, rels, architecture.as_is);
     if (diagram) wrap.append(diagram);
+    const flowNote = architectureFlowNote(doc);
+    if (flowNote) wrap.append(flowNote);
     return wrap;
   }
 

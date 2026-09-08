@@ -2,6 +2,8 @@ import json
 import hashlib
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 from moth.project_model import build_project_model
 
 
@@ -62,7 +64,20 @@ def test_build_project_model_derives_moth_identity_and_python_runtime() -> None:
         "state-machine:inspection"
     ]
     assert model["architecture"]["declaration_state"] == "DECLARED"
-    assert model["architecture"]["drift"]["state"] == "CONFORMANT"
+    # 这里此前断言 CONFORMANT, 而那个 CONFORMANT 是假的: drift 拿 desired 跟 current 比,
+    # 而 current 里的关系正是同一份 .moth/architecture.yaml 合并进来的 —— 声明在跟自己比,
+    # 结论恒为"一致"。接上 AST import 图之后, 两条经不起核对的声明被诚实地标了出来:
+    #   relation:inspection-guidance-application —— inspection.py 根本不 import
+    #     guidance_application, 真正的调用方是 decision_context.py, 而它不在声明里
+    #   relation:web-launcher-server —— 端点是 start.command(shell), import 图管不到
+    # 所以整体从"一致"变成"无法证实"。这不是回归, 这正是被修掉的那个假象。
+    drift = model["architecture"]["drift"]
+    assert drift["state"] == "UNVERIFIABLE"
+    assert drift["unverifiable_ids"] == [
+        "relation:relation:inspection-guidance-application",
+        "relation:relation:web-launcher-server",
+    ]
+    assert drift["violation_ids"] == []
     assert model["coverage"]["detectors"] == [
         {"id": "python-project", "state": "DETECTED"},
         {"id": "apple-project", "state": "NOT_DETECTED"},
@@ -199,3 +214,59 @@ def test_published_schemas_match_the_ones_the_code_validates_against() -> None:
         f"这些 schema 在 src/moth/schemas/ 与 schemas/ 之间漂了: {drifted}。"
         "改契约时两份都要改。"
     )
+
+
+def test_build_project_model_carries_import_graph_when_supplied(tmp_path) -> None:
+    """Phase 2 第二步: 图只是"挂"进模型, 原样传递, 不做提升/合并 (那是下一步)。"""
+
+    import_graph = {
+        "state": "OK",
+        "roots": ["src"],
+        "modules": ["acme.alpha", "acme.beta"],
+        "edges": [
+            {
+                "source": "acme.alpha",
+                "target": "acme.beta",
+                "locations": [{"path": "src/acme/alpha.py", "line": 1}],
+            }
+        ],
+        "omitted": {"files": 0, "edges": 0},
+        "notes": [],
+        "issues": [],
+    }
+
+    model = build_project_model(tmp_path, import_graph=import_graph)
+
+    assert model["import_graph"] == import_graph
+
+
+def test_build_project_model_import_graph_defaults_to_none(tmp_path) -> None:
+    model = build_project_model(tmp_path)
+
+    assert model["import_graph"] is None
+
+
+def test_project_model_with_import_graph_remains_valid_against_public_schema(
+    tmp_path,
+) -> None:
+    import_graph = {
+        "state": "NOT_CONFIGURED",
+        "roots": [],
+        "modules": [],
+        "edges": [],
+        "omitted": {"files": 0, "edges": 0},
+        "notes": ["import_graph not effective: no roots configured"],
+        "issues": [],
+    }
+
+    model = build_project_model(tmp_path, import_graph=import_graph)
+    schema = json.loads(
+        (REPO_ROOT / "schemas" / "moth.project-model.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert list(Draft202012Validator(schema).iter_errors(model)) == []
+
+    model_without_graph = build_project_model(tmp_path)
+    assert list(Draft202012Validator(schema).iter_errors(model_without_graph)) == []

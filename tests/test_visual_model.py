@@ -1,6 +1,10 @@
 import json
 
-from moth.visual_model import build_visual_model
+from moth.visual_model import (
+    build_visual_model,
+    validate_visual_document_schema,
+    validate_visual_model,
+)
 
 
 def inspection_fixture() -> dict:
@@ -472,6 +476,189 @@ def test_v2_topology_projects_real_flows_new_to_be_entities_and_drift() -> None:
     assert model["architecture"]["drift"][0]["status"] == "VIOLATION"
     assert "architecture-drift:entity:service:risk" in model["findings"]
 
+    # S1: 架构图只画组件与组件间的结构关系 —— flow/state_machine 是流程记录,
+    # 不是组件, 混进架构图会让"这个系统有几个组件"这个问题答不出来。
+    as_is = model["architecture"]["as_is"]
+    assert "flow:inspect" not in as_is["entity_ids"], (
+        "business_flow 实体不该出现在架构图的 entity_ids 里"
+    )
+    assert all(
+        model["entities"][entity_id]["kind"] not in {"business_flow", "state_machine"}
+        for entity_id in as_is["entity_ids"]
+    )
+    assert all(
+        model["relations"][relation_id]["kind"] not in {"flow_step", "governs_state"}
+        for relation_id in as_is["relation_ids"]
+    )
+    # S5: 留在 relation_ids 里的每条关系两端都必须是留在 entity_ids 里的组件,
+    # 否则前端拿到悬空引用只能静默丢弃它。
+    entity_id_set = set(as_is["entity_ids"])
+    assert all(
+        model["relations"][relation_id]["source_id"] in entity_id_set
+        and model["relations"][relation_id]["target_id"] in entity_id_set
+        for relation_id in as_is["relation_ids"]
+    )
+    # S2: 上游声明了 complete=True 就原样透传, 不是视觉层自己重判。
+    assert as_is["complete"] is True
+    assert validate_visual_model(model) == []
+
+
+def test_architecture_as_is_omits_complete_key_when_upstream_silent() -> None:
+    """上游没声明 complete 时不能补一个默认值 —— "未声明"不等于 False。"""
+    model = build_visual_model(inspection_fixture())
+
+    assert "complete" not in model["architecture"]["as_is"]
+
+
+def test_architecture_relation_excluded_when_endpoint_is_not_a_component() -> None:
+    """真实数据实测: uses-runtime:python-console:moth:python 这条关系的 target 是
+    runtime 实体 —— runtime 本就不算组件, 被排除在 entity_ids 外, 但关系本身此前
+    仍留在 relation_ids 里, 前端拿到悬空引用只能静默丢弃它。
+
+    正确的修法是在投影处把端点不全在 entity_ids 里的关系一并移出 relation_ids。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [],
+            "relations": [
+                {
+                    "id": "uses-runtime:python-console:sample:python",
+                    "kind": "uses_runtime",
+                    "source_id": "python-console:sample",
+                    "target_id": "python",
+                    "label": "uses runtime",
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                    "source": "DETECTED",
+                }
+            ],
+            "flows": [],
+            "state_machines": [],
+            "architecture": {
+                "declaration_state": "NOT_DECLARED",
+                "current": {
+                    "state": "OBSERVED",
+                    "complete": True,
+                    "entity_ids": ["python-console:sample", "python"],
+                    "relation_ids": ["uses-runtime:python-console:sample:python"],
+                    "flow_ids": [],
+                    "state_machine_ids": [],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                },
+                "desired": {
+                    "state": "NOT_DECLARED",
+                    "complete": False,
+                    "entities": [],
+                    "relations": [],
+                    "flows": [],
+                    "state_machines": [],
+                    "evidence_ids": [],
+                },
+                "drift": {
+                    "state": "NOT_COMPUTED",
+                    "findings": [],
+                    "violation_ids": [],
+                    "unverifiable_ids": [],
+                    "conformant_ids": [],
+                },
+                "issues": [],
+                "warnings": [],
+            },
+        }
+    )
+
+    model = build_visual_model(inspection)
+
+    assert "python" not in model["architecture"]["as_is"]["entity_ids"]
+    assert (
+        "uses-runtime:python-console:sample:python"
+        not in model["architecture"]["as_is"]["relation_ids"]
+    )
+    assert validate_visual_model(model) == []
+
+
+def test_structural_relation_source_passes_through_while_flow_step_stays_silent() -> None:
+    """S3: 只有会出现在 as_is.relation_ids 里的结构关系才透传 source;
+    flow_step 这类不设置, 查不到时也不能默认成 DECLARED。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model["modules"] = [
+        {
+            "id": "module:a",
+            "kind": "module",
+            "name": "Module A",
+            "responsibility": "Does A.",
+            "evidence_ids": ["manifest:pyproject.toml"],
+        },
+        {
+            "id": "module:b",
+            "kind": "module",
+            "name": "Module B",
+            "responsibility": "Does B.",
+            "evidence_ids": ["manifest:pyproject.toml"],
+        },
+    ]
+    project_model["relations"] = [
+        {
+            "id": "relation:a-calls-b",
+            "kind": "calls",
+            "source_id": "module:a",
+            "target_id": "module:b",
+            "label": "调用",
+            "evidence_ids": ["manifest:pyproject.toml"],
+            "source": "DETECTED",
+        }
+    ]
+    project_model["flows"] = [
+        {
+            "id": "flow:demo",
+            "name": "Demo",
+            "steps": [
+                {"id": "step:1", "entity_id": "module:a", "action": "start"},
+            ],
+            "evidence_ids": ["manifest:pyproject.toml"],
+        }
+    ]
+
+    model = build_visual_model(inspection)
+
+    assert "relation:a-calls-b" in model["architecture"]["as_is"]["relation_ids"]
+    assert model["relations"]["relation:a-calls-b"]["source"] == "DETECTED"
+    flow_steps = [r for r in model["relations"].values() if r["kind"] == "flow_step"]
+    assert flow_steps, "样本里没有 flow_step, 这个用例就没在验它该验的东西"
+    assert all("source" not in step for step in flow_steps)
+
+
+def test_system_viewpoint_includes_flows_layer() -> None:
+    """S4: 架构图排除流程之后, 系统视角必须仍能看到 flows 层 ——
+    否则切到系统视角的人会以为这个系统没有被记录的流程。
+    """
+    model = build_visual_model(inspection_fixture())
+    system_viewpoint = next(
+        viewpoint
+        for viewpoint in model["navigation"]["viewpoints"]
+        if viewpoint["id"] == "system"
+    )
+
+    assert "flows" in system_viewpoint["layer_ids"]
+
+
+def test_diagram_policy_is_passed_through_verbatim() -> None:
+    """S4: diagram 策略段原样透传成 diagram_policy, 前端画图用的稀疏规则/
+    坐标轴说明/来源图例/关系读法都来自这里, 不是前端自己编的。
+    """
+    from moth.visual_policy import load_visual_policy
+
+    model = build_visual_model(inspection_fixture())
+    policy = load_visual_policy()
+
+    assert model["diagram_policy"] == policy["diagram"]
+    assert model["diagram_policy"]["sparse_rule"]["min_edges"] == 2
+    assert model["diagram_policy"]["provenance_legend"][0]["id"] == "CONFIRMED"
+
 
 def test_change_safety_projects_exact_risk_path_without_claiming_cause() -> None:
     inspection = inspection_fixture()
@@ -757,3 +944,196 @@ def test_architecture_state_never_claims_observed_for_a_hand_written_topology() 
 
     assert model["architecture"]["as_is"]["state"] == "DECLARED_ONLY"
     assert model["architecture"]["as_is"]["provenance"]["detected"] == 0
+
+
+def _two_module_inspection() -> dict:
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model["modules"] = [
+        {
+            "id": "module:a",
+            "kind": "module",
+            "name": "Module A",
+            "responsibility": "Does A.",
+            "evidence_ids": ["manifest:pyproject.toml"],
+        },
+        {
+            "id": "module:b",
+            "kind": "module",
+            "name": "Module B",
+            "responsibility": "Does B.",
+            "evidence_ids": ["manifest:pyproject.toml"],
+        },
+    ]
+    return inspection
+
+
+def test_relation_verification_passes_through_with_location_budget() -> None:
+    """N2: 关系的 verification(status/reason/locations)透传到 visual relation,
+    locations 是代码坐标, 按 visual_policy 的预算截断 —— 超出的部分必须留下
+    omitted_locations 计数, 不能悄悄丢掉(与该文件既有的截断风格一致)。
+    """
+    from moth.visual_policy import load_visual_policy
+
+    inspection = _two_module_inspection()
+    project_model = inspection["snapshot"]["project_model"]
+    limit = int(load_visual_policy()["limits"]["verification_locations_per_relation"])
+    locations = [{"path": f"src/moth/file{i}.py", "line": i + 1} for i in range(limit + 2)]
+    project_model["relations"] = [
+        {
+            "id": "relation:a-b",
+            "kind": "calls",
+            "source_id": "module:a",
+            "target_id": "module:b",
+            "label": "调用",
+            "evidence_ids": ["manifest:pyproject.toml"],
+            "source": "CONFIRMED",
+            "verification": {
+                "status": "CONFIRMED_BY_IMPORT",
+                "reason": "confirmed_by_import_edge",
+                "locations": locations,
+            },
+        }
+    ]
+
+    model = build_visual_model(inspection)
+    relation = model["relations"]["relation:a-b"]
+
+    assert relation["verification"]["status"] == "CONFIRMED_BY_IMPORT"
+    assert relation["verification"]["locations"] == locations[:limit]
+    assert relation["verification"]["omitted_locations"] == 2
+    assert validate_visual_model(model) == []
+    assert validate_visual_document_schema(model) == []
+
+
+def test_relation_verification_without_locations_carries_status_and_reason_only() -> None:
+    """DECLARED 且 NOT_OBSERVED/NOT_VERIFIABLE 的关系没有代码坐标可给 ——
+    透传后不该凭空出现 locations 或 omitted_locations 键。
+    """
+    inspection = _two_module_inspection()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model["relations"] = [
+        {
+            "id": "relation:a-b",
+            "kind": "calls",
+            "source_id": "module:a",
+            "target_id": "module:b",
+            "label": "调用",
+            "evidence_ids": ["manifest:pyproject.toml"],
+            "source": "DECLARED",
+            "verification": {
+                "status": "NOT_OBSERVED",
+                "reason": "not_observed_in_static_imports",
+            },
+        }
+    ]
+
+    model = build_visual_model(inspection)
+    relation = model["relations"]["relation:a-b"]
+
+    assert relation["verification"] == {
+        "status": "NOT_OBSERVED",
+        "reason": "not_observed_in_static_imports",
+    }
+    assert validate_visual_document_schema(model) == []
+
+
+def test_relation_without_upstream_verification_has_no_verification_key() -> None:
+    """查不到就不写这个键 —— 不能默认成一个空对象, 那比不显示更具误导性。"""
+    model = build_visual_model(inspection_fixture())
+
+    assert all("verification" not in relation for relation in model["relations"].values())
+
+
+def test_entity_attributes_include_import_module_and_scope_when_present() -> None:
+    """N3: import_module/import_scope 是 import 图验证时挂在实体上的坐标信息 ——
+    有就带进 attributes, openEntity 已经泛化渲染 attributes, 不必新写一条 UI。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "service:worker",
+                    "kind": "service",
+                    "name": "Worker",
+                    "responsibility": "Do the work.",
+                    "locator": "src/worker.py",
+                    "import_module": "sample.worker",
+                    "import_scope": "outside",
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [],
+            "state_machines": [],
+        }
+    )
+
+    model = build_visual_model(inspection)
+    attributes = model["entities"]["service:worker"]["attributes"]
+
+    assert attributes["import_module"] == "sample.worker"
+    assert attributes["import_scope"] == "outside"
+
+
+def test_entity_attributes_omit_import_fields_when_absent() -> None:
+    """没有 import_module/import_scope 时不能凭空造一对空字符串。"""
+    model = build_visual_model(inspection_fixture())
+    entity = next(iter(model["entities"].values()))
+
+    assert "import_module" not in entity["attributes"]
+    assert "import_scope" not in entity["attributes"]
+
+
+def test_application_entity_keeps_import_scope_after_applications_loop_rebuild() -> None:
+    """实测: applications/modules 会按**同一个 id**在 unified entities 之后重建实体,
+    覆盖掉刚设好的 attributes —— moth 自己的真实数据里 python-console:moth 就是这样,
+    unified entities 带 import_module=moth.cli, 但被 applications 循环用只有
+    entrypoint 的 attributes 整个换掉, import_module 就丢了。这个用例锁住修复:
+    重建后 import_module/import_scope 必须还在。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "python-console:sample",
+                    "kind": "application",
+                    "name": "sample",
+                    "responsibility": "Application entrypoint.",
+                    "locator": "sample.cli:main",
+                    "import_module": "sample.cli",
+                    "import_scope": None,
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [],
+            "state_machines": [],
+        }
+    )
+    # applications 集合里同一个 id 的重建条目故意**不带** import_module ——
+    # 这正是实测里丢字段的那次覆盖。
+
+    model = build_visual_model(inspection)
+    attributes = model["entities"]["python-console:sample"]["attributes"]
+
+    assert attributes["import_module"] == "sample.cli"
+    assert attributes["entrypoint"] == "sample.cli:main"
+
+
+def test_kind_reading_registers_the_imports_relation() -> None:
+    """N1: imports 是 architecture_model 真实产出的 relation kind(共享 import 图
+    提升到组件层的边), 图例此前找不到它的读法, 显示"未登记读法"。
+    """
+    from moth.visual_policy import load_visual_policy
+
+    policy = load_visual_policy()
+    ids = {item["id"] for item in policy["diagram"]["kind_reading"]}
+
+    assert "imports" in ids

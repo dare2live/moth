@@ -185,28 +185,18 @@ current:
         - id: step:inspect-start
           entity_id: service:inspection
           action: receive one Moth inspection request
-          from_state: idle
-          to_state: inspecting
         - id: step:inspect-snapshot
           entity_id: service:snapshot
           action: collect current repository evidence
-          from_state: inspecting
-          to_state: snapshot_ready
         - id: step:inspect-guidance
           entity_id: service:guidance-application
           action: validate structured Guidance decision evidence
-          from_state: snapshot_ready
-          to_state: guidance_assessed
         - id: step:inspect-visual
           entity_id: service:visual-model
           action: build a renderer-neutral document when requested
-          from_state: guidance_assessed
-          to_state: modeled
         - id: step:inspect-render
           entity_id: service:html-report
           action: render the validated visual document
-          from_state: modeled
-          to_state: rendered
       evidence_ids: [upgrade-plan, operating-model]
     - id: flow:change-safety
       name: Change safety assessment

@@ -275,7 +275,12 @@ class WebConsoleApplication:
                         "project_selection": self._project_registration is not None,
                     },
                     "projects": [
-                        project.public_metadata() for project in config.projects
+                        {
+                            **project.public_metadata(),
+                            "available": project.available,
+                            "unavailable_reason": project.unavailable_reason,
+                        }
+                        for project in config.projects
                     ],
                 },
             )
@@ -378,6 +383,16 @@ class WebConsoleApplication:
                     "PROJECT_REGISTRY_FAILED",
                     "The project registry could not be loaded.",
                     retryable=True,
+                )
+            if not project.available:
+                # G3: 目录已经不存在的项目不是服务器故障, 是已知的客户端可处理状态 ——
+                # 4xx 加可读 message, 不能是 500, 也不能让异常一路冒到这里之外。
+                return self._error(
+                    start_response,
+                    "409 Conflict",
+                    "PROJECT_UNAVAILABLE",
+                    project.unavailable_reason
+                    or "Configured project is currently unavailable.",
                 )
             if not self._inspection_gate.acquire(blocking=False):
                 return self._error(

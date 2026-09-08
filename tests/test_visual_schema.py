@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+import yaml
 from jsonschema import Draft202012Validator
 
 from moth.visual_model import (
@@ -80,6 +82,106 @@ def test_visual_validators_reject_missing_status_evidence_and_schema_fields() ->
     assert any("status requires" in error for error in validate_visual_model(model))
     del model["source"]
     assert validate_visual_document_schema(model)
+
+
+def test_relation_source_field_is_accepted_by_schema_but_stays_optional() -> None:
+    """S6: relation.source 是可选枚举字段, 不加进 required, 且非法取值必须被 schema 拒绝。"""
+    model = build_visual_model(inspection_fixture())
+    relation_id = next(iter(model["relations"]))
+
+    model["relations"][relation_id]["source"] = "DETECTED"
+    assert validate_visual_document_schema(model) == []
+
+    model["relations"][relation_id]["source"] = "MADE_UP"
+    assert validate_visual_document_schema(model) != []
+
+
+def test_architecture_state_complete_field_is_accepted_by_schema_but_stays_optional() -> None:
+    """S6: architectureState.complete 是可选布尔字段, 不加进 required。"""
+    model = build_visual_model(inspection_fixture())
+
+    model["architecture"]["as_is"]["complete"] = True
+    assert validate_visual_document_schema(model) == []
+
+    model["architecture"]["as_is"]["complete"] = "yes"
+    assert validate_visual_document_schema(model) != []
+
+
+def test_diagram_policy_field_is_accepted_by_schema_and_stays_optional() -> None:
+    """S6: 根对象的 diagram_policy 是可选字段 —— build_visual_model 总会填它,
+    但 schema 本身不能强制要求它存在(旧文档不带这个字段也得能过 schema)。
+    """
+    model = build_visual_model(inspection_fixture())
+    assert validate_visual_document_schema(model) == []
+
+    without_diagram_policy = dict(model)
+    del without_diagram_policy["diagram_policy"]
+    assert validate_visual_document_schema(without_diagram_policy) == []
+
+    model["diagram_policy"] = "not an object"
+    assert validate_visual_document_schema(model) != []
+
+
+def test_semantic_validator_flags_as_is_relation_with_endpoint_missing_from_entity_ids() -> None:
+    """S5(a): as_is.relation_ids 里每条关系的两端都必须在 as_is.entity_ids 里,
+    否则报错必须点名这条 relation 的 id。
+    """
+    model = build_visual_model(inspection_fixture())
+    as_is = model["architecture"]["as_is"]
+    entity_id = as_is["entity_ids"][0]
+    model["relations"]["synthetic:dangling"] = {
+        "id": "synthetic:dangling",
+        "kind": "uses_runtime",
+        "source_id": entity_id,
+        "target_id": "python",  # 存在于 entities, 但不在 as_is.entity_ids 里
+        "label": "uses runtime",
+        "evidence_ids": [],
+        "source": "DETECTED",
+    }
+    as_is["relation_ids"] = as_is["relation_ids"] + ["synthetic:dangling"]
+
+    errors = validate_visual_model(model)
+
+    assert any("synthetic:dangling" in error for error in errors)
+
+
+def test_semantic_validator_flags_as_is_relation_missing_source() -> None:
+    """S5(b): as_is.relation_ids 里每条关系都必须带 source, 否则报错必须点名 relation id。"""
+    model = build_visual_model(inspection_fixture())
+    as_is = model["architecture"]["as_is"]
+    entity_id = as_is["entity_ids"][0]
+    model["relations"]["synthetic:no-source"] = {
+        "id": "synthetic:no-source",
+        "kind": "calls",
+        "source_id": entity_id,
+        "target_id": entity_id,
+        "label": "自环",
+        "evidence_ids": [],
+    }
+    as_is["relation_ids"] = as_is["relation_ids"] + ["synthetic:no-source"]
+
+    errors = validate_visual_model(model)
+
+    assert any("synthetic:no-source" in error for error in errors)
+
+
+def test_load_visual_policy_rejects_invalid_diagram_policy(tmp_path, monkeypatch) -> None:
+    """S4: load_visual_policy() 必须真的校验 diagram 段, 不是加了字段没人验。"""
+    from moth import visual_policy as visual_policy_module
+
+    source_path = Path(visual_policy_module.__file__).with_name("visual_policy.yaml")
+    payload = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    payload["diagram"]["provenance_legend"][0]["line"] = "zigzag"
+    broken_path = tmp_path / "visual_policy.yaml"
+    broken_path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
+
+    monkeypatch.setattr(visual_policy_module, "files", lambda package: tmp_path)
+    visual_policy_module.load_visual_policy.cache_clear()
+    try:
+        with pytest.raises(ValueError):
+            visual_policy_module.load_visual_policy()
+    finally:
+        visual_policy_module.load_visual_policy.cache_clear()
 
 
 def test_html_renderer_does_not_import_collectors_or_filesystem() -> None:

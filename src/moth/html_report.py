@@ -42,14 +42,48 @@ def _render_entity(entity: dict[str, Any]) -> str:
 def _render_relation(
     relation: dict[str, Any],
     entities: dict[str, dict[str, Any]],
+    source_labels: dict[str, str] | None = None,
 ) -> str:
-    source = entities.get(str(relation.get("source_id"))) or {}
-    target = entities.get(str(relation.get("target_id"))) or {}
+    source_entity = entities.get(str(relation.get("source_id"))) or {}
+    target_entity = entities.get(str(relation.get("target_id"))) or {}
+    # J5: 关系标注它的来源 —— CONFIRMED/DETECTED/DECLARED 各自的大白话。没有 source
+    # 字段的关系(上游查不到时)不标注, 不能默认成 DECLARED, 否则"不知道"会被说成
+    # "只来自声明", 比不显示更具误导性。
+    provenance_value = relation.get("source")
+    provenance_label = (
+        (source_labels or {}).get(str(provenance_value)) if provenance_value else None
+    )
+    source_badge = (
+        f' <span class="relation-source">{_text(provenance_value)} · '
+        f"{_text(provenance_label)}</span>"
+        if provenance_value and provenance_label
+        else ""
+    )
+    # N4: CONFIRMED/DETECTED 的关系后面附证据位置(path:line) —— locations 的预算
+    # 已经在 visual_model 里按 verification_locations_per_relation 截断, 这里只负责
+    # 如实显示截断后的坐标, 连同 omitted_locations 计数, 不能再悄悄少显示一次。
+    # DECLARED 关系(NOT_OBSERVED/NOT_VERIFIABLE)没有代码坐标可给, 不出现这个后缀。
+    verification = relation.get("verification") or {}
+    locations = verification.get("locations") or []
+    evidence_badge = ""
+    if provenance_value in {"CONFIRMED", "DETECTED"} and locations:
+        loc_text = "，".join(
+            f"{_text(item.get('path'))}:{_text(item.get('line'))}"
+            for item in locations
+            if isinstance(item, dict)
+        )
+        omitted = int(verification.get("omitted_locations") or 0)
+        if omitted:
+            loc_text += f"（还有 {omitted} 处未显示）"
+        if loc_text:
+            evidence_badge = f' <span class="relation-evidence">{loc_text}</span>'
     return (
         "<li>"
-        f"<strong>{_text(source.get('name') or relation.get('source_id'))}</strong>"
+        f"<strong>{_text(source_entity.get('name') or relation.get('source_id'))}</strong>"
         f" <span>{_text(relation.get('label'))}</span> "
-        f"<strong>{_text(target.get('name') or relation.get('target_id'))}</strong>"
+        f"<strong>{_text(target_entity.get('name') or relation.get('target_id'))}</strong>"
+        f"{source_badge}"
+        f"{evidence_badge}"
         "</li>"
     )
 
@@ -119,10 +153,25 @@ def _render_home_actions(
     return "".join(chunks)
 
 
+def _render_provenance(provenance: dict[str, Any]) -> str:
+    # J1: confirmed 为 0 时也必须显式写出来 —— 那恰恰是最该让人警醒的数字,
+    # 不能因为是 0 就像 Web Console 此前那样被 `if provenance.get("confirmed")`
+    # 悄悄省略掉。
+    detected = int(provenance.get("detected") or 0)
+    confirmed = int(provenance.get("confirmed") or 0)
+    declared = int(provenance.get("declared") or 0)
+    return (
+        '<p class="meta-note">来源拆分：'
+        f"{detected} 个扫描到，{confirmed} 个被独立证实，{declared} 个只来自声明文件。"
+        "</p>"
+    )
+
+
 def _render_architecture(
     architecture: dict[str, Any],
     entities: dict[str, dict[str, Any]],
     relations: dict[str, dict[str, Any]],
+    source_labels: dict[str, str],
 ) -> str:
     def side(title: str, payload: dict[str, Any]) -> str:
         entity_html = "".join(
@@ -131,7 +180,7 @@ def _render_architecture(
             if entity_id in entities
         )
         relation_html = "".join(
-            _render_relation(relations[relation_id], entities)
+            _render_relation(relations[relation_id], entities, source_labels)
             for relation_id in payload.get("relation_ids") or []
             if relation_id in relations
         )
@@ -143,13 +192,28 @@ def _render_architecture(
             if omitted.get("entities") or omitted.get("relations")
             else ""
         )
+        # J1: provenance 键不存在就整行不渲染, 不臆造一个 0。
+        provenance_text = (
+            _render_provenance(payload["provenance"])
+            if isinstance(payload.get("provenance"), dict)
+            else ""
+        )
+        # J2: complete 有三种状态(True / False / 键不存在), 只有明确为 False 才露面 ——
+        # 键不存在不能被当成 False, True 也不该显示"不完整"。
+        incomplete_text = (
+            '<p class="meta-note">这份架构声明自称不完整，未画出的组件不等于不存在。</p>'
+            if payload.get("complete") is False
+            else ""
+        )
         return (
             '<section class="truth-panel">'
             '<div class="panel-heading">'
             f"<h3>{_text(title)}</h3>"
             f'<span class="state {_status_class(payload.get("state"))}">{_text(payload.get("state"))}</span>'
             "</div>"
-            f'<div class="entity-list">{content}</div>'
+            + provenance_text
+            + incomplete_text
+            + f'<div class="entity-list">{content}</div>'
             + (f'<ul class="relations">{relation_html}</ul>' if relation_html else "")
             + omitted_text
             + "</section>"
@@ -189,6 +253,13 @@ def _render_layers(model: dict[str, Any]) -> str:
     entities = model.get("entities") or {}
     relations = model.get("relations") or {}
     findings = model.get("findings") or {}
+    # J5: CONFIRMED/DETECTED/DECLARED 的大白话来自 diagram_policy.provenance_legend
+    # (visual_policy.yaml 里唯一定义这三个词含义的地方), 不在这里另编一份文案。
+    source_labels = {
+        str(item.get("id")): str(item.get("label"))
+        for item in (model.get("diagram_policy") or {}).get("provenance_legend") or []
+        if isinstance(item, dict) and item.get("id")
+    }
     chunks = []
     rendered_finding_ids: set[str] = set()
     for layer in model.get("layers") or []:
@@ -199,7 +270,7 @@ def _render_layers(model: dict[str, Any]) -> str:
             if entity_id in entities
         )
         relation_html = "".join(
-            _render_relation(relations[relation_id], entities)
+            _render_relation(relations[relation_id], entities, source_labels)
             for relation_id in layer.get("relation_ids") or []
             if relation_id in relations
         )
@@ -239,6 +310,7 @@ def _render_layers(model: dict[str, Any]) -> str:
                 model.get("architecture") or {},
                 entities,
                 relations,
+                source_labels,
             )
             entity_html = ""
             relation_html = ""
@@ -268,6 +340,36 @@ def _render_layers(model: dict[str, Any]) -> str:
     return "".join(chunks)
 
 
+def _render_terms(terms: dict[str, Any]) -> str:
+    # J4: 术语表常驻 —— 渲染成看得见的 <dl>, 不是 title 属性(hover), 键盘用户、
+    # 触屏用户、离线报告的读者都拿得到。按键排序保证确定性渲染, 不依赖输入顺序。
+    if not terms:
+        return ""
+    items = "".join(
+        f"<dt>{_text(key)}</dt><dd>{_text(value)}</dd>"
+        for key, value in sorted(terms.items())
+    )
+    return (
+        '<section class="glossary" aria-label="术语表">'
+        "<h2>术语表</h2>"
+        f'<dl class="glossary-list">{items}</dl>'
+        "</section>"
+    )
+
+
+def _render_generated_note(source: dict[str, Any]) -> str:
+    # J3: 渲染器保持纯函数, 不执行 git 去找 commit —— document 的 source 段
+    # (schema 里 additionalProperties: false)本来就只有 inspection_digest 和
+    # generated_at, 没有 commit/版本字段。有生成时间就显示, 没有就说明没有,
+    # 并如实说明 document 里没有 commit/版本字段, 不假装去查。
+    generated_at = source.get("generated_at")
+    time_text = _text(generated_at) if generated_at else "生成时间未知"
+    return (
+        f'<p class="generated">生成时间：{time_text}；'
+        "document 未携带 commit / 版本信息。</p>"
+    )
+
+
 def render_html_report(model: dict[str, Any]) -> str:
     identity = model.get("identity") or {}
     status = model.get("status") or {}
@@ -292,6 +394,8 @@ def render_html_report(model: dict[str, Any]) -> str:
             ("协作上下文", status.get("context_readiness")),
         )
     )
+    terms_html = _render_terms(model.get("terms") or {})
+    generated_note = _render_generated_note(model.get("source") or {})
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -335,7 +439,7 @@ h1 {{ margin: 8px 0 6px; font-size: clamp(2rem,5vw,4.7rem); line-height: .98; le
 .lede {{ margin: 0; max-width: 68ch; color: var(--muted); }}
 .status-grid {{ min-width: 280px; display: grid; gap: 8px; }}
 .status-grid div {{ display: flex; justify-content: space-between; gap: 28px; }}
-.status-grid span, .kind, .empty, .omitted {{ color: var(--muted); }}
+.status-grid span, .kind, .empty, .omitted, .meta-note {{ color: var(--muted); }}
 .good {{ color: var(--accent); }} .warn {{ color: var(--warn); }} .bad {{ color: var(--bad); }}
 .view-nav, .layer-nav {{ display: flex; flex-wrap: wrap; gap: 8px; }}
 .view-nav {{ padding: 18px 0 8px; }}
@@ -373,6 +477,7 @@ h1 {{ margin: 8px 0 6px; font-size: clamp(2rem,5vw,4.7rem); line-height: .98; le
 .attributes dd, .finding-grid dd {{ margin: 0; overflow-wrap: anywhere; }}
 .relations {{ padding: 14px 18px 0 34px; }}
 .relations span {{ color: var(--muted); margin: 0 6px; }}
+.relations .relation-source, .relations .relation-evidence {{ font-size: .72rem; margin-left: 4px; }}
 .finding {{
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius); margin: 10px 0;
@@ -384,11 +489,16 @@ h1 {{ margin: 8px 0 6px; font-size: clamp(2rem,5vw,4.7rem); line-height: .98; le
 .truth-columns {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
 .truth-panel {{ box-shadow: var(--shadow); }}
 code {{ overflow-wrap: anywhere; color: var(--accent); }}
+.glossary {{ margin: 30px 0; padding-top: 26px; border-top: 1px solid var(--line); }}
+.glossary-list {{ display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 24px; }}
+.glossary-list dt {{ font-weight: 700; margin-top: 10px; }}
+.glossary-list dd {{ margin: 2px 0 0; color: var(--muted); }}
 footer {{ padding: 30px 0 48px; color: var(--muted); border-top: 1px solid var(--line); }}
+footer .generated {{ margin: 0 0 10px; font-size: .85rem; }}
 @media (max-width: 767px) {{
   .shell {{ padding: 16px; }}
   .topbar, .home-grid, .truth-columns, .entity-list, .evidence-list,
-  .attributes, .finding-grid {{ grid-template-columns: 1fr; }}
+  .attributes, .finding-grid, .glossary-list {{ grid-template-columns: 1fr; }}
   .status-grid {{ min-width: 0; }}
   .layer-nav {{ max-width: 100%; min-width: 0; overflow-x: auto; flex-wrap: nowrap; }}
   .layer-nav a {{ white-space: nowrap; }}
@@ -422,8 +532,12 @@ footer {{ padding: 30px 0 48px; color: var(--muted); border-top: 1px solid var(-
       </section>
     </div>
     {_render_layers(model)}
+    {terms_html}
   </main>
-  <footer>所有结论都应回到证据。未声明不等于不存在。</footer>
+  <footer>
+    {generated_note}
+    <p>所有结论都应回到证据。未声明不等于不存在。</p>
+  </footer>
 </div>
 </body>
 </html>

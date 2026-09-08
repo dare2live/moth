@@ -133,6 +133,8 @@
       "type": "array",
       "items": {"$ref": "#/$defs/layer"}
     },
+    "diagram_policy": {"type": "object"},
+    "terms": {"type": "object"},
     "architecture": {
       "type": "object",
       "additionalProperties": false,
@@ -226,7 +228,33 @@
         "target_id": {"type": "string", "minLength": 1},
         "label": {"type": "string", "minLength": 1},
         "order": {"type": "integer", "minimum": 1},
-        "evidence_ids": {"$ref": "#/$defs/stringList"}
+        "evidence_ids": {"$ref": "#/$defs/stringList"},
+        "source": {"enum": ["DETECTED", "CONFIRMED", "DECLARED"]},
+        "verification": {"$ref": "#/$defs/relationVerification"}
+      }
+    },
+    "relationVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {
+          "enum": ["CONFIRMED_BY_IMPORT", "NOT_OBSERVED", "NOT_VERIFIABLE"]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "line"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "line": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        "omitted_locations": {"type": "integer", "minimum": 0}
       }
     },
     "finding": {
@@ -365,7 +393,8 @@
             "entities": {"type": "integer", "minimum": 0},
             "relations": {"type": "integer", "minimum": 0}
           }
-        }
+        },
+        "complete": {"type": "boolean"}
       }
     }
   }

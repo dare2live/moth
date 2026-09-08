@@ -51,4 +51,42 @@ def load_visual_policy() -> dict[str, Any]:
         value = limits.get(key)
         if not isinstance(value, int) or value < 1 or value > 1_000:
             raise ValueError(f"visual policy limit {key} must be between 1 and 1000")
+    diagram = payload.get("diagram")
+    if not isinstance(diagram, dict):
+        raise ValueError("visual policy diagram must be a mapping")
+    sparse_rule = diagram.get("sparse_rule")
+    if not isinstance(sparse_rule, dict):
+        raise ValueError("visual policy diagram sparse_rule must be a mapping")
+    min_edges = sparse_rule.get("min_edges")
+    if not isinstance(min_edges, int) or min_edges < 0:
+        raise ValueError(
+            "visual policy diagram sparse_rule.min_edges must be a non-negative int"
+        )
+    min_connected_ratio = sparse_rule.get("min_connected_ratio")
+    if (
+        not isinstance(min_connected_ratio, (int, float))
+        or not 0 <= min_connected_ratio <= 1
+    ):
+        raise ValueError(
+            "visual policy diagram sparse_rule.min_connected_ratio must be between 0 and 1"
+        )
+    for key in ("provenance_legend", "kind_reading"):
+        items = diagram.get(key)
+        if not isinstance(items, list) or not items:
+            raise ValueError(f"visual policy diagram {key} must be a non-empty list")
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                raise ValueError(f"visual policy diagram {key} items must have an id")
+    for item in diagram["provenance_legend"]:
+        if item.get("line") not in {"solid", "dashed", "dotted"}:
+            raise ValueError(
+                "visual policy diagram provenance_legend line must be "
+                "solid, dashed, or dotted"
+            )
+    terms = payload.get("terms")
+    if not isinstance(terms, dict) or not terms:
+        raise ValueError("visual policy terms must be a non-empty mapping")
+    for key, value in terms.items():
+        if not isinstance(value, str) or not value:
+            raise ValueError("visual policy terms values must be non-empty strings")
     return payload

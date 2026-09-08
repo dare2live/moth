@@ -119,6 +119,85 @@ def test_web_config_resolves_only_declared_projects(tmp_path) -> None:
         "description": "Primary fixture",
         "profile_state": "ephemeral",
     }
+    assert config.projects[0].available is True
+    assert config.projects[0].unavailable_reason is None
+
+
+def test_web_config_degrades_missing_repo_instead_of_raising(tmp_path) -> None:
+    present = tmp_path / "present"
+    present.mkdir()
+    config_path = _write_config(
+        tmp_path / ".moth" / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [
+                {"id": "present", "name": "Present", "repo": "../present"},
+                {
+                    "id": "ghost",
+                    "name": "Ghost",
+                    "repo": "../moved-or-deleted",
+                    "description": "repo no longer exists",
+                },
+            ],
+        },
+    )
+
+    config = load_web_console_config(config_path)
+
+    assert [project.id for project in config.projects] == ["present", "ghost"]
+    present_project, ghost_project = config.projects
+    assert present_project.available is True
+    assert present_project.unavailable_reason is None
+    assert ghost_project.available is False
+    assert isinstance(ghost_project.unavailable_reason, str)
+    assert ghost_project.unavailable_reason
+    # 原因不能泄露文件系统绝对路径。
+    assert str(tmp_path) not in ghost_project.unavailable_reason
+    # public_metadata() 故意不带 available/unavailable_reason —— 它还要喂给
+    # moth.web-project-view.schema.json 的 additionalProperties:false 校验。
+    assert "available" not in ghost_project.public_metadata()
+    assert "unavailable_reason" not in ghost_project.public_metadata()
+
+
+def test_web_config_still_rejects_profile_escaping_its_declared_repo(tmp_path) -> None:
+    allowed = tmp_path / "allowed"
+    other = tmp_path / "other"
+    allowed.mkdir()
+    other.mkdir()
+    profile = allowed / "custom.yaml"
+    profile.write_text(
+        "\n".join(
+            [
+                "kind: profile",
+                "name: redirected",
+                "repo_path: ../other",
+                "codegraph_root: .",
+                "instruction_sources:",
+                "  sources: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_path = _write_config(
+        tmp_path / ".moth" / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [
+                {
+                    "id": "allowed",
+                    "name": "Allowed",
+                    "repo": "../allowed",
+                    "profile": "custom.yaml",
+                }
+            ],
+        },
+    )
+
+    # G1 只降级"目录不存在"这一种情况; profile 描述别的 repo 仍然必须 fail-closed。
+    with pytest.raises(ValueError, match="must describe its declared repo"):
+        load_web_console_config(config_path)
 
 
 def test_web_config_uses_valid_local_profile_and_marks_invalid_profile(tmp_path) -> None:
@@ -334,10 +413,56 @@ def test_projects_api_lists_public_metadata_without_filesystem_paths(tmp_path) -
                 "name": "Repository",
                 "description": "Read-only target",
                 "profile_state": "ephemeral",
+                "available": True,
+                "unavailable_reason": None,
             }
         ],
     }
     assert str(tmp_path) not in body.decode()
+
+
+def test_projects_api_marks_missing_repo_unavailable_and_inspections_reject_it_with_4xx(
+    tmp_path,
+) -> None:
+    repo = tmp_path / "present"
+    repo.mkdir()
+    config_path = _write_config(
+        tmp_path / ".moth" / "web.yaml",
+        {
+            "schema_version": "moth.web-console.v1",
+            "server": {"host": "127.0.0.1", "port": 8765},
+            "projects": [
+                {"id": "present", "name": "Present", "repo": "../present"},
+                {"id": "ghost", "name": "Ghost", "repo": "../moved-or-deleted"},
+            ],
+        },
+    )
+    # G4: 至少有一个可用项目时, 服务必须能起来(混了不可用项目也不能拦下整个 app)。
+    app = create_web_application(load_web_console_config(config_path), token="secret")
+
+    status, _, body = _call_wsgi(app, "/api/v1/projects", token="secret")
+    payload = yaml.safe_load(body)
+    assert status == "200 OK"
+    listed = {project["id"]: project for project in payload["projects"]}
+    assert listed["present"]["available"] is True
+    assert listed["present"]["unavailable_reason"] is None
+    assert listed["ghost"]["available"] is False
+    assert isinstance(listed["ghost"]["unavailable_reason"], str)
+    assert listed["ghost"]["unavailable_reason"]
+    assert str(tmp_path) not in body.decode()
+
+    status, _, body = _call_wsgi(
+        app,
+        "/api/v1/inspections",
+        method="POST",
+        token="secret",
+        payload={"project_id": "ghost"},
+    )
+    assert status.startswith("4"), status
+    assert status != "404 Not Found"
+    error = yaml.safe_load(body)
+    assert error["error"]["code"] == "PROJECT_UNAVAILABLE"
+    assert error["error"]["message"]
 
 
 def test_project_selection_api_registers_and_reloads_allowlist(tmp_path) -> None:
@@ -1049,3 +1174,107 @@ def test_every_document_state_word_has_a_plain_language_explanation() -> None:
     collect(schema)
     assert declared, "schema 里没抽出状态词 —— 结构变了, 这个用例需要跟着改"
     assert declared <= explained, f"这些状态会原样出现在屏幕上却没有解释: {sorted(declared - explained)}"
+
+
+def test_architecture_diagram_reads_provenance_not_kind_color() -> None:
+    """架构图规格变更(F1-F10): 颜色不再由 kind 决定, 边有箭头, 线型由
+    relation.source 经 diagram_policy.provenance_legend 决定(不是硬编码的
+    kind -> 颜色表), 节点两行(名字 + locator/entrypoint), 图例/图头meta/
+    未连接分区/图下锚点句都是常驻内容, 稀疏判据读 diagram_policy.sparse_rule,
+    provenanceLine 在 confirmed=0 时必须显式输出。
+
+    沿用本文件已有的"扫描 app.js/app.css 源码字符串"风格
+    (参照 test_web_assets_are_exact_packaged_routes_and_use_safe_dom) ——
+    只断言能从源码文本稳定核实的部分; 图真的画对与否留给浏览器实测(见验收报告)。
+    """
+    app_js = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.js").read_text(encoding="utf-8")
+    app_css = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.css").read_text(encoding="utf-8")
+
+    # F1: KIND_COLOR 整个常量删掉, 颜色不再由 kind 决定。
+    assert "KIND_COLOR" not in app_js
+
+    # F2: 每条边要有 marker(箭头); 线型由 relation.source 经
+    # diagram_policy.provenance_legend 映射决定, 不是硬编码的 kind 判断;
+    # 至少定义两个 marker(实心配实线 / 空心配虚线)。
+    assert app_js.count('createElementNS(ns, "marker")') >= 2
+    assert "marker-end" in app_js
+    assert "provenance_legend" in app_js
+    assert "r.source" in app_js
+
+    # F3: 节点第二行取 attributes.locator 的 basename, 没有 locator 时退到 entrypoint。
+    assert "attrs.locator" in app_js
+    assert "attrs.entrypoint" in app_js
+
+    # F4: 图例只列图上实际出现的项; kind 在 kind_reading 里找不到读法时要显式
+    # 标注"未登记读法", 不能静默跳过也不能凭空造一个读法。
+    assert "kind_reading" in app_js
+    assert "未登记读法" in app_js
+
+    # F5: 图头 meta 行带组件数/关系数/axis_note 原文; complete === false 时追加
+    # 不完整提示, 且要用 hasOwnProperty 区分"没声明"和"声明为 false"两种情况。
+    assert "axis_note" in app_js
+    assert "hasOwnProperty" in app_js
+    assert "这份架构声明自称不完整（complete: false），未画出的组件不等于不存在" in app_js
+
+    # F6: 零边节点单独成区, 不再混进第 0 层被读成入口组件。
+    assert "unconnected_note" in app_js
+    assert "unconnectedIds" in app_js
+
+    # F7: 图下锚点句的数量从 doc.entities 真实数出来, 点击跳到既有的 flows 层。
+    assert '"business_flow"' in app_js
+    assert '"state_machine"' in app_js
+    assert 'renderLayer("flows")' in app_js
+
+    # F8: provenanceLine 在 confirmed = 0 时也要显式输出, 不能被
+    # `if (p.confirmed)` 静默吞掉。
+    assert "0 个被独立证实" in app_js
+
+    # F9: 稀疏判据的两个数从 diagram_policy.sparse_rule 读, 不再硬编码
+    # `edges.length < 2 || connected.size * 2 < ids.length`。
+    assert "sparse_rule" in app_js
+    assert "min_connected_ratio" in app_js
+    assert "edges.length < 2 || connected.size * 2 < ids.length" not in app_js
+
+    # F10: .arch-svg 不再有压缩宽度的规则, 图按自然尺寸渲染; 横向滚动仍然存在,
+    # 只是挪到了专门包裹 svg 的容器上, 不会连累图例和 meta 行一起被滚走。
+    assert "width: 100%; height: auto; max-height: 520px" not in app_css
+    assert "overflow-x: auto" in app_css
+
+
+def test_architecture_edge_titles_surface_provenance_and_evidence_location() -> None:
+    """Phase 2 收尾: 边的 hover title 在 label 基础上追加"来源 + 证据"。
+
+    CONFIRMED/DETECTED 有 verification.locations 就附代码坐标(path:line);
+    DECLARED 没有坐标, 只能附 verification.reason 翻成的大白话说明"为什么没有"。
+    reason -> 大白话的映射来自 diagram_policy.verification_reason_labels
+    (visual_policy.yaml), 不在 app.js 里硬编码中文文案 —— 查不到就显式标"未登记
+    原因", 不静默吞掉也不编一个像的(与 kind_reading 的"未登记读法"同一套规矩)。
+    """
+    app_js = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.js").read_text(encoding="utf-8")
+
+    assert "r.verification" in app_js or "relation.verification" in app_js
+    assert "verification_reason_labels" in app_js
+    assert "未登记原因" in app_js
+
+
+def test_visual_policy_registers_imports_kind_reading_and_verification_reasons() -> None:
+    """N1 + N3 的数据侧: imports 的读法, 以及 verification.reason 的大白话文案,
+    都必须在 visual_policy.yaml 里能查到 —— 不是前端编出来的。
+    """
+    from moth.visual_policy import load_visual_policy
+
+    policy = load_visual_policy()
+    diagram = policy["diagram"]
+    kind_ids = {item["id"] for item in diagram["kind_reading"]}
+    assert "imports" in kind_ids
+
+    reason_ids = {item["id"] for item in diagram.get("verification_reason_labels") or []}
+    # 这些是 architecture_model._verify_relations_against_import_graph 实际会产出
+    # 的 reason 码(不含动态导入标记后缀, 那部分 app.js 会先按 ";" 切掉)。
+    assert {
+        "not_observed_in_static_imports",
+        "cross_language",
+        "non_python_locator",
+        "kind_outside_import_scope",
+        "import_graph_not_configured",
+    } <= reason_ids

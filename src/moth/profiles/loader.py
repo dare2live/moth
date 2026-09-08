@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from moth.checks.import_graph import infer_import_roots
+
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILES_DIR = ROOT / "profiles"
@@ -35,6 +37,10 @@ class RepoProfile:
     assertion_packs: list[Path] = field(default_factory=list)
     # 可选 import-cycle 检查配置: {scan_paths: [], package_prefix: str, allowlist_path: str|None}
     import_cycles: dict[str, Any] | None = None
+    # 可选共享 import 图配置: {roots: [...], exclude: [...]}。推导顺序见 _load_import_graph:
+    # 1) profile 显式写了 import_graph.roots 2) 从 import_cycles 机械推导
+    # 3) 从 pyproject.toml 推导 4) 都推不出 -> None (不猜, 不默认成仓库根)。
+    import_graph: dict[str, Any] | None = None
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     notes: str = ""
 
@@ -198,6 +204,63 @@ def _load_import_cycles(
     return options
 
 
+def _load_import_graph(
+    data: dict[str, Any],
+    base: Path,
+    *,
+    require_repo_local: bool,
+    import_cycles_config: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """`import_graph.roots/exclude` —— 推导顺序见 RepoProfile.import_graph 的注释。
+
+    1) profile 显式写了 import_graph.roots -> 用它 (走跟 scan_paths 一样的
+       _resolve_profile_path/portable_path 校验, require_repo_local 语义一致)。
+    2) 否则若 profile 有 import_cycles 配置 -> 从中机械推导 (scan_paths + package_prefix)。
+    3) 否则从仓库 pyproject.toml 推导。
+    4) 都推不出 -> None (不猜, 不默认成仓库根) —— 与 import_cycles 未配置时同样返回
+       None 的既有风格一致。
+    """
+
+    raw = data.get("import_graph")
+    if raw is not None and not isinstance(raw, dict):
+        raise ValueError("import_graph must be a mapping (roots/exclude)")
+    options = {str(key): value for key, value in (raw or {}).items()}
+
+    def portable_path(value: Any, field_name: str) -> str:
+        resolved = _resolve_profile_path(
+            base,
+            value,
+            field_name=field_name,
+            require_repo_local=require_repo_local,
+        )
+        if require_repo_local:
+            return resolved.relative_to(base.resolve()).as_posix()
+        return str(resolved)
+
+    explicit_roots = options.get("roots")
+    if explicit_roots is not None:
+        if not isinstance(explicit_roots, list) or not explicit_roots:
+            raise ValueError("import_graph.roots must be a non-empty list")
+        roots = [
+            portable_path(value, f"import_graph.roots[{index}]")
+            for index, value in enumerate(explicit_roots)
+        ]
+    else:
+        inferred = infer_import_roots(base, import_cycles_config=import_cycles_config)
+        if inferred["state"] != "OK":
+            return None
+        roots = [
+            portable_path(value, f"import_graph.roots[{index}]")
+            for index, value in enumerate(inferred["roots"])
+        ]
+
+    raw_exclude = options.get("exclude") or []
+    if not isinstance(raw_exclude, list):
+        raise ValueError("import_graph.exclude must be a list")
+
+    return {"roots": roots, "exclude": [str(item) for item in raw_exclude]}
+
+
 def _load_tools(
     data: dict[str, Any],
     base: Path,
@@ -265,6 +328,11 @@ def load_profile(ref: str | Path) -> RepoProfile:
     if require_repo_local and complexity_command:
         raise ValueError("non-bundled profiles cannot select external complexity executables")
     baseline_path = data.get("complexity_baseline_path")
+    import_cycles_config = _load_import_cycles(
+        data,
+        base,
+        require_repo_local=require_repo_local,
+    )
     return RepoProfile(
         kind=str(data.get("kind", "profile")),
         name=str(data["name"]),
@@ -303,10 +371,12 @@ def load_profile(ref: str | Path) -> RepoProfile:
             )
             for index, item in enumerate(data.get("assertion_packs") or [])
         ],
-        import_cycles=_load_import_cycles(
+        import_cycles=import_cycles_config,
+        import_graph=_load_import_graph(
             data,
             base,
             require_repo_local=require_repo_local,
+            import_cycles_config=import_cycles_config,
         ),
         tools=_load_tools(
             data,

@@ -31,6 +31,10 @@
         "type": "string"
       }
     },
+    "duckdb_storage": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "dirty_worktree": {
       "type": "array",
       "items": {
@@ -42,6 +46,10 @@
       "additionalProperties": true
     },
     "complexity": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "import_graph": {
       "type": "object",
       "additionalProperties": true
     },

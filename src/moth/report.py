@@ -14,7 +14,9 @@ from moth.adapters.complexity import load_complexity_baseline
 from moth.checks.assertions import run_assertion_packs
 from moth.checks.coupling import orphans as run_coupling_orphans
 from moth.checks.import_cycles import audit_import_cycles_for_profile
+from moth.checks.import_graph import build_import_graph, infer_import_roots
 from moth.checks.dirty_worktree import git_status
+from moth.checks.duckdb_storage import scan_duckdb_storage
 from moth.checks.startup import check_profile
 from moth.guidance import resolve_guidance_sources, sanitize_instruction_sources
 from moth.project_model import build_project_model
@@ -176,9 +178,34 @@ def build_report(
         else run_coupling_orphans(effective_profile.repo_path)
     )
     guidance = resolve_guidance_sources(effective_profile.instruction_sources)
+    # 共享 import 图 (Phase 2 第二步): 纯 AST 读文件, 不执行任何外部命令, 与下面的
+    # import_cycles 同级 —— 两者都不受 execution_policy 门控, safe_view 下也跑。
+    # profile 显式写了 import_graph 就用它; 否则用 infer_import_roots 现推 (兜底覆盖
+    # 没有 .moth/profile.yaml 的 ephemeral profile —— 有 profile 文件时 loader 已经在
+    # 加载期做过同样的推导并写进 profile.import_graph, 这里不会再推一次)。
+    if effective_profile.import_graph:
+        _import_graph_roots = list(effective_profile.import_graph.get("roots") or [])
+        _import_graph_excludes = list(effective_profile.import_graph.get("exclude") or [])
+    else:
+        _inferred_import_roots = infer_import_roots(
+            effective_profile.repo_path,
+            import_cycles_config=effective_profile.import_cycles,
+        )
+        _import_graph_roots = (
+            list(_inferred_import_roots["roots"])
+            if _inferred_import_roots["state"] == "OK"
+            else []
+        )
+        _import_graph_excludes = []
+    import_graph = build_import_graph(
+        effective_profile.repo_path,
+        roots=_import_graph_roots,
+        excludes=_import_graph_excludes,
+    )
     project_model = build_project_model(
         effective_profile.repo_path,
         evidence_paths=effective_profile.evidence_paths,
+        import_graph=import_graph,
     )
     tool_evidence = collect_tool_evidence(effective_profile)
     # 可选功能: profile 配置了 import_cycles 才跑, 未配置不惩罚 (SKIP)。
@@ -186,6 +213,11 @@ def build_report(
         import_cycles = audit_import_cycles_for_profile(effective_profile)
     else:
         import_cycles = {"verdict": "SKIP", "note": "profile has no import_cycles config"}
+    duckdb_storage = (
+        {"databases": [], "warnings": [], "skipped": "safe_view"}
+        if execution_policy == "safe_view"
+        else scan_duckdb_storage(effective_profile.repo_path)
+    )
 
     warnings = []
     if execution_policy == "safe_view":
@@ -197,6 +229,7 @@ def build_report(
     warnings.extend(_warnings_from_codegraph(codegraph))
     warnings.extend(_warnings_from_complexity(complexity))
     warnings.extend(_complexity_excludes_warning(effective_profile))
+    warnings.extend(duckdb_storage.get("warnings") or [])
     tool_issues, tool_warnings = tool_health_messages(tool_evidence)
     issues.extend(tool_issues)
     warnings.extend(tool_warnings)
@@ -215,6 +248,13 @@ def build_report(
         issues.extend(coupling.get("fails") or ["coupling orphan check failed"])
     if import_cycles.get("verdict") == "FAIL":
         issues.extend(import_cycles.get("issues") or ["import cycle check failed"])
+    # NOT_CONFIGURED 不是错误 (未配置不惩罚); 只有 INVALID (配了 roots 但一个都不存在,
+    # 例如 profile.yaml 写错或目录后来被删) 才是真正的配置错误, 进 issues。
+    if import_graph.get("state") == "INVALID":
+        issues.extend(
+            f"import graph: {item}" for item in
+            (import_graph.get("issues") or ["import graph roots invalid"])
+        )
     if assertions["verdict"] == "FAIL":
         issues.extend(assertions["issues"])
         for pack in assertions["packs"]:
@@ -247,7 +287,9 @@ def build_report(
         "project_model": _jsonable(project_model),
         "tool_evidence": _jsonable(tool_evidence),
         "import_cycles": _jsonable(import_cycles),
+        "import_graph": _jsonable(import_graph),
         "assertions": _jsonable(assertions),
+        "duckdb_storage": _jsonable(duckdb_storage),
     }
 
 
@@ -627,6 +669,20 @@ def render_markdown(report: dict[str, Any]) -> str:
                 )
     if assertions.get("issues"):
         lines.extend(_render_list("Assertion issues", assertions["issues"]))
+    storage = report.get("duckdb_storage") or {}
+    lines.append("")
+    lines.append("## DuckDB storage")
+    lines.append(f"- Warn band: `{storage.get('warn_free_pct', '?')}%` free_blocks")
+    databases = storage.get("databases") or []
+    if not databases:
+        lines.append("- No `data/*.duckdb` files scanned.")
+    for item in databases:
+        pct = item.get("free_pct")
+        pct_txt = "unreadable" if pct is None else f"{pct}%"
+        lines.append(
+            f"- `{item.get('path')}`: free_blocks {pct_txt}"
+            f" ({item.get('free_blocks', '?')}/{item.get('total_blocks', '?')})"
+        )
     return "\n".join(lines) + "\n"
 
 

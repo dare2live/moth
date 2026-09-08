@@ -158,6 +158,7 @@ def build_project_model(
     repo_path: str | Path,
     *,
     evidence_paths: dict[str, Path] | None = None,
+    import_graph: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detected = run_detectors(repo_path)
     issues = [issue for fragment in detected for issue in fragment["issues"]]
@@ -209,12 +210,18 @@ def build_project_model(
     #  "inventing identity would defeat the truth-source-first premise",
     #  却在本层实现了它。删除后代码与声明一致, ledger stage_5 那条理由也重新成立。)
     project = _merge_project(detected, issues)
+    # 把上游已经算好的 import 图传下去, 而不是让 build_architecture_model 自己再推一次。
+    # 同一次 build_report 里算两遍不只是慢: 两次推导的 roots 来源不同(这里带得到 profile
+    # 的 import_cycles 配置, 那里只能看 pyproject), 一旦某个仓两者推出不同的 roots,
+    # 快照里的 import_graph 和架构判定用的就不是同一张图 —— 而判定会说"你声明的这条
+    # 关系代码里没有", 依据却是一张读者看不到的图。单一计算点在这里是正确性要求。
     architecture = build_architecture_model(
         repo_path,
         project=project,
         applications=applications,
         runtimes=runtimes,
         modules=modules,
+        import_graph=import_graph,
     )
     for item in architecture["evidence"]:
         existing = next(
@@ -251,6 +258,9 @@ def build_project_model(
         "state_machines": architecture["state_machines"],
         "architecture": architecture["architecture"],
         "evidence": evidence,
+        # Phase 2 第二步: 共享 import 图原样挂载, 不做提升/三档合并 (那是下一步)。
+        # None = 调用方未提供 (例如未配置 import_graph 的旧调用点)。
+        "import_graph": import_graph,
         "coverage": {
             "detectors": [fragment["detector"] for fragment in detected],
             "issues": issues,

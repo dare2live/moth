@@ -19,6 +19,19 @@ def _coupling_pass(monkeypatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _duckdb_storage_quiet(monkeypatch) -> None:
+    monkeypatch.setattr(
+        report_module,
+        "scan_duckdb_storage",
+        lambda _repo, **_k: {
+            "databases": [],
+            "warnings": [],
+            "warn_free_pct": 10.0,
+        },
+    )
+
+
 def test_build_report_surfaces_tooling_evidence(monkeypatch, tmp_path) -> None:
     codex_home = tmp_path / "codex-home"
     skill_dir = codex_home / "skills" / "mio"
@@ -371,6 +384,71 @@ def test_build_report_does_not_warn_on_unchanged_complexity_with_loaded_baseline
     assert payload["complexity"]["governance_state"] == "STABLE"
     assert payload["warnings"] == []
     assert payload["issues"] == []
+
+
+def test_build_report_surfaces_duckdb_storage_warnings(monkeypatch, tmp_path) -> None:
+    profile = RepoProfile(
+        kind="ephemeral_profile",
+        name="toy",
+        repo_path=tmp_path,
+        codegraph_root=tmp_path,
+    )
+
+    def fake_codegraph(root):
+        return {
+            "command": ["codegraph", "status", str(root)],
+            "returncode": 0,
+            "stdout": "Index is up to date",
+            "stderr": "",
+            "verdict": "PASS",
+            "state": "UP_TO_DATE",
+            "index_up_to_date": True,
+            "issues": [],
+            "index_statistics": {},
+            "nodes_by_kind": {},
+            "files_by_language": {},
+        }
+
+    def fake_complexity(root, command, **_kwargs):
+        return {
+            "command": list(command) if command else ["<builtin>"],
+            "returncode": 0,
+            "stdout": "[]",
+            "stderr": "",
+            "verdict": "PASS",
+            "issues": [],
+            "findings": [],
+            "summary": {
+                "finding_count": 0,
+                "severity_counts": {},
+                "kind_counts": {},
+                "high_count": 0,
+                "medium_count": 0,
+                "info_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(report_module, "run_codegraph_status", fake_codegraph)
+    monkeypatch.setattr(report_module, "run_complexity_analysis", fake_complexity)
+    monkeypatch.setattr(report_module, "load_complexity_baseline", lambda _path: ([], "not_configured"))
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+    monkeypatch.setattr(report_module, "check_profile", lambda _profile: [])
+    monkeypatch.setattr(
+        report_module,
+        "scan_duckdb_storage",
+        lambda _repo, **_k: {
+            "databases": [{"path": "data/market.duckdb", "free_pct": 24.85}],
+            "warnings": [
+                "duckdb storage: data/market.duckdb free_blocks 24.85% "
+                "(749/3014) ≥ 10% — file_size ratchets miss this; compact needed"
+            ],
+            "warn_free_pct": 10.0,
+        },
+    )
+    payload = report_module.build_report(profile)
+    assert payload["status"] == "WARN"
+    assert any("free_blocks" in item for item in payload["warnings"])
+    assert payload["duckdb_storage"]["databases"][0]["path"] == "data/market.duckdb"
 
 
 def test_build_report_compares_disjoint_complexity_roots(monkeypatch) -> None:
@@ -779,4 +857,90 @@ def test_truncated_complexity_scan_is_not_reported_stable() -> None:
     assert report_module._complexity_governance_state(
         {"status": "compared", "new_count": 0, "new_high_count": 0}
     ) == "STABLE"
+
+
+def test_build_report_builds_import_graph_under_safe_view(tmp_path, monkeypatch) -> None:
+    """L1: import_graph 必须在 safe_view 下也跑 (纯 AST, 与 import_cycles 同级),
+    且结果原样流进 project_model (L2)。"""
+    pkg = tmp_path / "src" / "acme"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "alpha.py").write_text("from acme.beta import helper\n", encoding="utf-8")
+    (pkg / "beta.py").write_text("def helper() -> None:\n    return None\n", encoding="utf-8")
+    profile = RepoProfile(
+        kind="profile",
+        name="import-graph-sample",
+        repo_path=tmp_path,
+        codegraph_root=tmp_path,
+        import_graph={"roots": ["src"], "exclude": []},
+    )
+    monkeypatch.setattr(report_module, "run_codegraph_status", _fake_codegraph_pass)
+    monkeypatch.setattr(report_module, "git_status", lambda _path, **_k: [])
+    monkeypatch.setattr(
+        report_module,
+        "run_coupling_orphans",
+        lambda _repo_path, **_k: {"verdict": "PASS", "fails": [], "warns": []},
+    )
+
+    payload = report_module.build_report(profile, execution_policy="safe_view")
+
+    graph = payload["import_graph"]
+    assert graph["state"] == "OK"
+    assert graph["roots"] == ["src"]
+    assert graph["modules"] == ["acme", "acme.alpha", "acme.beta"]
+    assert graph["edges"] == [
+        {
+            "source": "acme.alpha",
+            "target": "acme.beta",
+            "locations": [{"path": "src/acme/alpha.py", "line": 1}],
+        }
+    ]
+    assert payload["project_model"]["import_graph"] == graph
+    assert not [item for item in payload["issues"] if "import graph" in item.lower()]
+    assert not [item for item in payload["warnings"] if "import graph" in item.lower()]
+
+
+def test_build_report_import_graph_not_configured_adds_no_noise(tmp_path, monkeypatch) -> None:
+    """L1: state == NOT_CONFIGURED 不得产生任何 warning/issue —— 未配置不是错误。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "hello.py").write_text("print('hi')\n", encoding="utf-8")
+    profile = RepoProfile(
+        kind="profile", name="unconfigured-sample", repo_path=repo, codegraph_root=repo
+    )
+    monkeypatch.setattr(report_module, "run_codegraph_status", _fake_codegraph_pass)
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+
+    payload = report_module.build_report(profile)
+
+    assert payload["import_graph"]["state"] == "NOT_CONFIGURED"
+    assert payload["import_graph"]["roots"] == []
+    assert payload["import_graph"]["issues"] == []
+    assert payload["issues"] == []
+    assert payload["warnings"] == []
+    assert payload["status"] == "PASS"
+    assert payload["project_model"]["import_graph"]["state"] == "NOT_CONFIGURED"
+
+
+def test_build_report_import_graph_invalid_roots_become_issue(tmp_path, monkeypatch) -> None:
+    """L1: 只有 INVALID (给了 roots 但一个都不存在) 才进顶层 issues; 用于捕获配置错误
+    (例如 profile.yaml 里的 import_graph.roots 写错/目录后来被删)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "hello.py").write_text("print('hi')\n", encoding="utf-8")
+    profile = RepoProfile(
+        kind="profile",
+        name="invalid-sample",
+        repo_path=repo,
+        codegraph_root=repo,
+        import_graph={"roots": ["does-not-exist"], "exclude": []},
+    )
+    monkeypatch.setattr(report_module, "run_codegraph_status", _fake_codegraph_pass)
+    monkeypatch.setattr(report_module, "git_status", lambda _path: [])
+
+    payload = report_module.build_report(profile)
+
+    assert payload["import_graph"]["state"] == "INVALID"
+    assert any("import graph" in item.lower() for item in payload["issues"])
+    assert payload["status"] == "FAIL"
 

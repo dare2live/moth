@@ -24,6 +24,13 @@ class WebProject:
     profile: RepoProfile
     profile_state: str
     profile_path: Path | None = None
+    # G1 降级: repo 目录已不存在(被删/改名/移走)时为 False, 项目仍留在配置里但不可用。
+    # 注意: public_metadata() 故意不带这两个字段 —— 它也被 web_service.build_project_view()
+    # 拿去过 moth.web-project-view.schema.json 的 additionalProperties:false 校验, 那份 schema
+    # 不认识 available/unavailable_reason。这两个字段只在 web_app.py 的 /api/v1/projects
+    # 列表响应里, 由调用方在 public_metadata() 之外单独拼上。
+    available: bool = True
+    unavailable_reason: str | None = None
 
     def public_metadata(self) -> dict[str, str]:
         return {
@@ -169,7 +176,23 @@ def load_web_console_config(path: str | Path) -> WebConsoleConfig:
     for item in project_specs:
         repo = _resolve_path(base, str(item["repo"]))
         if not repo.is_dir():
-            raise ValueError(f"web console project {item['id']} repo is unavailable")
+            # G1: 目录不存在是常态(被删/改名/移走), 不是配置错误 —— 降级为不可用,
+            # 不再 raise, 也绝不去读它下面的 profile。其它结构性校验(profile 越界/
+            # 描述错repo/schema)全部保持 fail-closed, 只有这一种情况降级。
+            projects.append(
+                WebProject(
+                    id=str(item["id"]),
+                    name=str(item["name"]),
+                    description=str(item.get("description") or ""),
+                    repo_path=repo,
+                    profile=build_default_profile(repo),
+                    profile_state="unavailable",
+                    profile_path=None,
+                    available=False,
+                    unavailable_reason="project repository directory is unavailable",
+                )
+            )
+            continue
         profile_value = item.get("profile")
         profile = _resolve_path(repo, str(profile_value)) if profile_value else None
         loaded_profile: RepoProfile

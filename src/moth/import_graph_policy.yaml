@@ -1,0 +1,18 @@
+kind: moth_import_graph_policy
+schema_version: 1
+budget:
+  max_files: 5000
+  max_edges: 20000
+default_excludes:
+  - .venv
+  - node_modules
+  - .git
+  - build
+  - dist
+  - __pycache__
+  - .claude/worktrees
+# 本步只读入并暴露, 供后续步骤(动态 import 盲区提示等)消费, 不在这一步做检测。
+dynamic_import_markers:
+  - importlib
+  - __import__
+  - subprocess

@@ -108,7 +108,10 @@ main { min-width: 0; padding: 28px 34px 64px; }
 .avoid-note { padding-top: 7px; border-top: 1px solid var(--line); }
 .avoid-note strong { color: var(--warn); }
 
-.flow-row { padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+/* min-width: 0 是横向滚动能生效的前提: flow-row 作为 grid/flex 子项默认 min-width:auto,
+   于是 .flow-strip 的 overflow-x:auto 永远不触发 —— 步骤条把自己撑开, 顶穿整个页面宽度,
+   浏览器实测 1100px 视口下 body.scrollWidth 被撑到 1275px。滚的应该是步骤条自己。 */
+.flow-row { padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-width: 0; }
 .flow-row + .flow-row { margin-top: 7px; }
 /* 术语: 虚线下划线示意"这词有解释", 鼠标停上去给大白话。 */
 .term { border-bottom: 1px dotted currentColor; cursor: help; }
@@ -235,9 +238,37 @@ dialog::backdrop { background: rgba(17, 27, 22, .48); }
 .tooling-selfcheck[open] summary { margin-bottom: 10px; }
 
 /* 架构图: 手写 SVG, 确定性分层布局 */
-.arch-diagram { margin-top: 16px; overflow-x: auto; }
-.arch-svg { width: 100%; height: auto; max-height: 520px; }
-.arch-edge { stroke: var(--line); stroke-width: 1.4; }
+.arch-diagram { margin-top: 16px; }
+.arch-meta { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.arch-meta p { margin: 0 0 4px; }
+.arch-meta-note { color: var(--warn); }
+/* 只有 svg 包在这个横向滚动容器里 —— meta 行和图例留在外面, 宽图横向滚动时
+   它们不会被一起滚出视野。这里是原来 .arch-diagram 上 overflow-x: auto 的落点,
+   之前 .arch-svg 的 width: 100% 把它架空了(图被压缩而不是滚动), 现在图按
+   自然尺寸(svg 的 width/height 属性)渲染, 这处 overflow-x: auto 才真正生效。 */
+.arch-diagram-scroll { overflow-x: auto; padding-bottom: 4px; }
+.arch-svg { display: block; height: auto; }
+.arch-edge { stroke: var(--muted); stroke-width: 1.4; fill: none; stroke-dasharray: none; }
+.arch-edge.dashed { stroke-dasharray: 6 4; }
+/* 两个 marker 和边线都用 --muted, 不用 --line-strong: --muted 是全站已经在用的
+   "正文次要文字"色, 在浅色/深色主题下都实测过对 --bg/--surface 有足够对比度;
+   --line-strong 是给 1px 描边用的极轻的色, 箭头这种承载"虚线=DECLARED"语义的
+   元素配它在深色主题下过于接近背景。两个 marker 分别用 fill / fill+stroke 着色,
+   不依赖继承线条颜色, 保证浅色和深色主题下都看得见。 */
+.arch-arrow-fill { fill: var(--muted); }
+.arch-arrow-hollow-shape { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
 .arch-node { cursor: pointer; }
-.arch-node:hover rect, .arch-node:focus rect { stroke: var(--ink); stroke-width: 2; }
-.arch-label { fill: #fff; font-size: 11px; pointer-events: none; }
+.arch-node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+.arch-node:hover rect, .arch-node:focus rect { stroke: var(--accent); stroke-width: 2; }
+.arch-label { fill: var(--ink); font-size: 11px; font-weight: 700; pointer-events: none; }
+.arch-sub-label { fill: var(--muted); font-size: 9px; pointer-events: none; }
+.arch-unconnected-label { fill: var(--muted); font-size: 11px; font-weight: 700; }
+.arch-legend { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.arch-legend-group h3 { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.arch-legend-group ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.arch-legend-group li { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.legend-swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--muted); }
+.legend-swatch.dashed { border-top-style: dashed; }
+.legend-kind { padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; }
+.arch-flow-note { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.link-button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--accent); background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }

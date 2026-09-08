@@ -121,6 +121,8 @@ def _relation(
     label: str,
     evidence_ids: list[str],
     order: int | None = None,
+    source: str | None = None,
+    verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     row = {
         "id": relation_id,
@@ -136,7 +138,48 @@ def _relation(
     # 让视图从 id 字符串里反推等于把同一件事算第二遍, 且算错。
     if order is not None:
         row["order"] = int(order)
+    # source 只由调用方在**能查到**上游 source 时传入(见 _build_entities 里的
+    # relation_sources 查表)—— 查不到就不设这个键, 不默认成 DECLARED。默认成 DECLARED
+    # 会把"不知道"渲染成"只来自声明", 比不显示更具误导性。
+    if source is not None:
+        row["source"] = source
+    # N2: verification 同样只在**能查到**上游 verification 时才设置 —— 半成品的
+    # verification(缺 status 或 reason)比没有更误导, 见 _relation_verification()。
+    if verification is not None:
+        row["verification"] = verification
     return row
+
+
+def _relation_verification(raw: Any, limit: int) -> dict[str, Any] | None:
+    """把 project_model 关系上的 verification 透传成 visual relation 的可选字段。
+
+    locations 是**代码坐标**, 不是 evidence 注册表条目 —— 两者不是一回事, 不能塞进
+    evidence 里冒充证据。按 limit 只保留前 N 条(与本文件既有的截断风格一致: 图上
+    predicates/关系引用截断时都留一个 omitted 计数), 超出的数量必须如实写成
+    omitted_locations, 不能悄悄丢掉。
+    """
+
+    verification = _mapping(raw)
+    status = str(verification.get("status") or "").strip()
+    reason = str(verification.get("reason") or "").strip()
+    if not status or not reason:
+        return None
+    result: dict[str, Any] = {"status": status, "reason": reason}
+    locations: list[dict[str, Any]] = []
+    for item in _list(verification.get("locations")):
+        entry = _mapping(item)
+        path = str(entry.get("path") or "").strip()
+        line = entry.get("line")
+        if not path or not isinstance(line, int):
+            continue
+        locations.append({"path": path, "line": line})
+    if locations:
+        kept = locations[: max(0, limit)]
+        omitted = len(locations) - len(kept)
+        result["locations"] = kept
+        if omitted:
+            result["omitted_locations"] = omitted
+    return result
 
 
 # finding 的**归属**: 这条说的是谁的问题。
@@ -247,6 +290,7 @@ def _build_entities(
     snapshot: dict[str, Any],
     project_model: dict[str, Any],
     evidence: dict[str, dict[str, Any]],
+    verification_locations_limit: int,
 ) -> tuple[
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
@@ -254,6 +298,16 @@ def _build_entities(
 ]:
     entities: dict[str, dict[str, Any]] = {}
     relations: dict[str, dict[str, Any]] = {}
+    # 同 id 关系的 source, 只收合法枚举值 —— 查不到 / 值不合法就不进表, 调用方
+    # 拿 .get(...) 会得到 None, _relation() 因此不写这个键, 而不是被喂进一个假的
+    # DECLARED。口径与 _provenance_of 一致但用途不同: 那边是计数, 这里是透传。
+    relation_sources: dict[str, str] = {}
+    for raw in _list(project_model.get("relations")):
+        item = _mapping(raw)
+        source_relation_id = str(item.get("id") or "").strip()
+        source_value = item.get("source")
+        if source_relation_id and source_value in {"DETECTED", "CONFIRMED", "DECLARED"}:
+            relation_sources[source_relation_id] = str(source_value)
     groups: dict[str, list[str]] = {
         "project": [],
         "applications": [],
@@ -272,6 +326,16 @@ def _build_entities(
         if not entity_id:
             continue
         kind = str(item.get("kind") or "entity")
+        # N3: import_module/import_scope 是 import 图验证时(architecture_model.
+        # _classify_entity_import_scope)挂在实体上的坐标信息 —— 有就带进 attributes,
+        # openEntity 已经泛化渲染它, 不必新写一条 UI。缺失就不写这个键, 不编空字符串。
+        attributes: dict[str, Any] = {}
+        if item.get("locator"):
+            attributes["locator"] = item.get("locator")
+        if item.get("import_module"):
+            attributes["import_module"] = item.get("import_module")
+        if item.get("import_scope"):
+            attributes["import_scope"] = item.get("import_scope")
         entities[entity_id] = _entity(
             entity_id,
             kind=kind,
@@ -279,9 +343,7 @@ def _build_entities(
             summary=str(item.get("responsibility") or "职责尚未声明。"),
             status="OBSERVED",
             evidence_ids=_strings(item.get("evidence_ids")),
-            attributes=(
-                {"locator": item.get("locator")} if item.get("locator") else {}
-            ),
+            attributes=attributes,
         )
         if kind == "project":
             groups["project"].append(entity_id)
@@ -293,6 +355,30 @@ def _build_entities(
             groups["technologies"].append(entity_id)
         else:
             groups["modules"].append(entity_id)
+    # N3: applications/modules 下面还会按**同一个 id**重建实体(它们来自 project_model
+    # 的另一份列表, 不是 unified_entities), 那两处重建会整个覆盖掉上面刚设好的
+    # attributes —— 查 moth 自己的真实数据实测: python-console:moth 在 unified
+    # entities 里带 import_module=moth.cli, 但 applications 循环用只有 entrypoint
+    # 的 attributes 把它整个换掉, import_module 就丢了。这张表按 id 记一份
+    # import_module/import_scope, 供后面两处重建时合并回去, 不重新计算一次。
+    import_scope_by_id: dict[str, dict[str, Any]] = {}
+    for raw in unified_entities:
+        item = _mapping(raw)
+        entity_id = str(item.get("id") or "").strip()
+        if not entity_id:
+            continue
+        scoped: dict[str, Any] = {}
+        if item.get("import_module"):
+            scoped["import_module"] = item.get("import_module")
+        if item.get("import_scope"):
+            scoped["import_scope"] = item.get("import_scope")
+        if scoped:
+            import_scope_by_id[entity_id] = scoped
+
+    def _with_import_scope(entity_id: str, attributes: dict[str, Any]) -> dict[str, Any]:
+        extra = import_scope_by_id.get(entity_id)
+        return {**attributes, **extra} if extra else attributes
+
     project = _mapping(project_model.get("project"))
     project_id = str(project.get("id") or "project:unknown")
     if project:
@@ -365,7 +451,9 @@ def _build_entities(
             summary=f"入口 {application.get('entrypoint') or '未识别'}。",
             status="OBSERVED",
             evidence_ids=evidence_ids,
-            attributes={"entrypoint": application.get("entrypoint")},
+            attributes=_with_import_scope(
+                application_id, {"entrypoint": application.get("entrypoint")}
+            ),
         )
         groups["applications"].append(application_id)
         runtime_id = str(application.get("runtime_id") or "")
@@ -378,6 +466,7 @@ def _build_entities(
                 target_id=runtime_id,
                 label="使用运行时",
                 evidence_ids=evidence_ids,
+                source=relation_sources.get(relation_id),
             )
 
     for raw in _list(project_model.get("modules")):
@@ -392,6 +481,7 @@ def _build_entities(
             summary=str(module.get("responsibility") or "模块职责尚未声明。"),
             status="OBSERVED",
             evidence_ids=_strings(module.get("evidence_ids")),
+            attributes=_with_import_scope(module_id, {}),
         )
         if module.get("kind") == "technology":
             groups["technologies"].append(module_id)
@@ -412,6 +502,10 @@ def _build_entities(
             target_id=target_id,
             label=str(item.get("label") or item.get("kind") or "关联"),
             evidence_ids=_strings(item.get("evidence_ids")),
+            source=relation_sources.get(relation_id),
+            verification=_relation_verification(
+                item.get("verification"), verification_locations_limit
+            ),
         )
 
     def add_flow(raw_flow: Any, *, desired: bool) -> None:
@@ -1077,6 +1171,9 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
         snapshot=snapshot,
         project_model=project_model,
         evidence=evidence,
+        verification_locations_limit=int(
+            policy["limits"]["verification_locations_per_relation"]
+        ),
     )
     findings = _build_findings(
         inspection=inspection,
@@ -1097,6 +1194,18 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
     identity_evidence = _strings(project.get("evidence_ids"))
     architecture_model = _mapping(project_model.get("architecture"))
     current_architecture = _mapping(architecture_model.get("current"))
+    # S1: 架构图只画组件与组件间的结构关系。business_flow / state_machine 是流程记录,
+    # 不是组件 —— 混进来会让"这个系统有几个组件"这个问题答不出来
+    # (2026-09-07 实测: moth 自己的架构图 20 个节点里 4 个不是组件, 25 条边里 13 条不是
+    # 结构关系)。project/runtime/technology 的既有排除保持不变。
+    architecture_excluded_entity_kinds = {
+        "project",
+        "runtime",
+        "technology",
+        "business_flow",
+        "state_machine",
+    }
+    architecture_excluded_relation_kinds = {"flow_step", "governs_state"}
     if architecture_model:
         all_architecture_entity_ids = sorted(
             {
@@ -1108,18 +1217,22 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
                 )
                 if entity_id in entities
                 and entities[entity_id].get("kind")
-                not in {"project", "runtime", "technology"}
+                not in architecture_excluded_entity_kinds
             }
         )
     else:
         all_architecture_entity_ids = sorted(
             set(groups["applications"] + groups["modules"])
         )
+    architecture_entity_limit = int(policy["limits"]["entities_per_layer"])
+    architecture_relation_limit = int(policy["limits"]["relations_per_layer"])
+    architecture_entity_ids = all_architecture_entity_ids[:architecture_entity_limit]
+    # 关系必须按**这张卡片实际会展示的实体集**(截断后的 architecture_entity_ids)过滤端点,
+    # 不是按截断前的全量集 —— 否则两个各自独立截断的列表凑不齐, 留下端点在图上找不到自己
+    # 另一头的悬空边。这也是 S5 那条跨集合校验今天就是红的原因: uses-runtime 关系的 target
+    # 是被排除的 runtime 实体, 关系本身此前却仍留在 relation_ids 里。
+    _architecture_entity_id_set = set(architecture_entity_ids)
     if architecture_model:
-        current_flow_entities = set(
-            _strings(current_architecture.get("flow_ids"))
-            + _strings(current_architecture.get("state_machine_ids"))
-        )
         current_relation_ids = set(
             _strings(current_architecture.get("relation_ids"))
         )
@@ -1127,18 +1240,18 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
             relation_id
             for relation_id, relation in relations.items()
             if relation_id in current_relation_ids
-            or relation["source_id"] in current_flow_entities
+            and relation.get("kind") not in architecture_excluded_relation_kinds
+            and relation["source_id"] in _architecture_entity_id_set
+            and relation["target_id"] in _architecture_entity_id_set
         )
     else:
         all_architecture_relation_ids = sorted(
             relation_id
             for relation_id, relation in relations.items()
-            if relation["source_id"] in set(all_architecture_entity_ids)
-            or relation["target_id"] in set(all_architecture_entity_ids)
+            if relation.get("kind") not in architecture_excluded_relation_kinds
+            and relation["source_id"] in _architecture_entity_id_set
+            and relation["target_id"] in _architecture_entity_id_set
         )
-    architecture_entity_limit = int(policy["limits"]["entities_per_layer"])
-    architecture_relation_limit = int(policy["limits"]["relations_per_layer"])
-    architecture_entity_ids = all_architecture_entity_ids[:architecture_entity_limit]
     architecture_relation_ids = all_architecture_relation_ids[:architecture_relation_limit]
     if architecture_model:
         desired = _mapping(architecture_model.get("desired"))
@@ -1253,6 +1366,47 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
         architecture_state = "NOT_DECLARED"
     else:
         architecture_state = "PARTIAL"
+    architecture_as_is = {
+        # 采用 project_model 已经算好的结论, 不在这里第二次判定 ——
+        # 此前这里无条件写 OBSERVED, 于是一份 100% 手写的架构声明也会显示成"观察到的"。
+        # 拿不到上游结论时才退回按有没有实体来分, 且那种情况下不敢声称 OBSERVED。
+        "state": str(
+            current_architecture.get("state")
+            or ("OBSERVED" if all_architecture_entity_ids else "PARTIAL")
+        ),
+        # 按**这张卡片实际展示的那批 id** 数, 不直接搬 project_model 的全量统计:
+        # 大项目会按 entities_per_layer 截断引用列表, 两个口径混在一行里
+        # ("20 个对象" 配 "共 35 项")会让人算不明白, 而算不明白的数字等于没给。
+        "provenance": _provenance_of(
+            project_model,
+            architecture_entity_ids,
+            architecture_relation_ids,
+        ),
+        "entity_ids": architecture_entity_ids,
+        "relation_ids": architecture_relation_ids,
+        "evidence_ids": sorted(
+            {
+                evidence_id
+                for entity_id in architecture_entity_ids
+                for evidence_id in _strings(entities[entity_id].get("evidence_ids"))
+            }
+        ),
+        "omitted": {
+            # 语义性排除(business_flow/state_machine 实体、flow_step/governs_state 关系、
+            # 端点不全在 entity_ids 里的悬空关系)已经在 all_architecture_* 计算时被拿掉,
+            # 不会流进这里 —— omitted 的既有语义是"因预算截断而省略", 把语义性排除混进来
+            # 会让这个数字撒谎。
+            "entities": len(all_architecture_entity_ids)
+            - len(architecture_entity_ids),
+            "relations": len(all_architecture_relation_ids)
+            - len(architecture_relation_ids),
+        },
+    }
+    # S2: 上游有 complete 且是布尔值才透传; 没声明就不输出这个键, 也不默认成
+    # True/False —— "未声明"不等于"不完整"。
+    current_complete = current_architecture.get("complete")
+    if isinstance(current_complete, bool):
+        architecture_as_is["complete"] = current_complete
     return {
         "schema_version": "moth.visual-document.v1",
         "source": {
@@ -1302,39 +1456,10 @@ def build_visual_model(inspection: dict[str, Any]) -> dict[str, Any]:
         "actions": dict(sorted(actions.items())),
         "evidence": dict(sorted(evidence.items())),
         "layers": layers,
+        "diagram_policy": policy.get("diagram"),
+        "terms": policy.get("terms"),
         "architecture": {
-            "as_is": {
-                # 采用 project_model 已经算好的结论, 不在这里第二次判定 ——
-                # 此前这里无条件写 OBSERVED, 于是一份 100% 手写的架构声明也会显示成"观察到的"。
-                # 拿不到上游结论时才退回按有没有实体来分, 且那种情况下不敢声称 OBSERVED。
-                "state": str(
-                    current_architecture.get("state")
-                    or ("OBSERVED" if all_architecture_entity_ids else "PARTIAL")
-                ),
-                # 按**这张卡片实际展示的那批 id** 数, 不直接搬 project_model 的全量统计:
-                # 大项目会按 entities_per_layer 截断引用列表, 两个口径混在一行里
-                # ("20 个对象" 配 "共 35 项")会让人算不明白, 而算不明白的数字等于没给。
-                "provenance": _provenance_of(
-                    project_model,
-                    architecture_entity_ids,
-                    architecture_relation_ids,
-                ),
-                "entity_ids": architecture_entity_ids,
-                "relation_ids": architecture_relation_ids,
-                "evidence_ids": sorted(
-                    {
-                        evidence_id
-                        for entity_id in architecture_entity_ids
-                        for evidence_id in _strings(entities[entity_id].get("evidence_ids"))
-                    }
-                ),
-                "omitted": {
-                    "entities": len(all_architecture_entity_ids)
-                    - len(architecture_entity_ids),
-                    "relations": len(all_architecture_relation_ids)
-                    - len(architecture_relation_ids),
-                },
-            },
+            "as_is": architecture_as_is,
             "to_be": {
                 "state": "DECLARED" if to_be_is_declared else "NOT_DECLARED",
                 "entity_ids": to_be_entity_ids if to_be_is_declared else [],
@@ -1479,6 +1604,26 @@ def validate_visual_model(model: dict[str, Any]) -> list[str]:
         errors.append(
             "declared To-Be requires evidence and at least one entity or relation"
         )
+
+    # S5: architecture.as_is 是画架构图用的那批 id —— 图上不能有一条边只有一头站得住。
+    # (a) 两端都必须是留在 as_is.entity_ids 里的组件, 不能悬空引用一个被排除的实体;
+    # (b) 必须带 source, 查不到来源时前端没法决定这条边画实线还是虚线, 不能悄悄漏掉。
+    # 两条都必须点名是哪条 relation, 否则读错误信息的人不知道该去修哪一条。
+    as_is = _mapping(architecture.get("as_is"))
+    as_is_entity_ids = set(_strings(as_is.get("entity_ids")))
+    for relation_id in _strings(as_is.get("relation_ids")):
+        relation = _mapping(relations.get(relation_id))
+        if (
+            relation.get("source_id") not in as_is_entity_ids
+            or relation.get("target_id") not in as_is_entity_ids
+        ):
+            errors.append(
+                f"architecture as_is relation {relation_id} endpoint missing from entity_ids"
+            )
+        if "source" not in relation:
+            errors.append(
+                f"architecture as_is relation {relation_id} is missing source"
+            )
     return errors
 
 

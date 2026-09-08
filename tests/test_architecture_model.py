@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 from moth.architecture_drift import build_architecture_drift
+from moth.architecture_model import build_architecture_model
 from moth.project_model import build_project_model
 
 
@@ -230,6 +231,9 @@ def test_declaration_adds_real_flows_states_and_evidence_backed_drift(
 
     assert model["verdict"] == "PASS"
     assert architecture["declaration_state"] == "DECLARED"
+    # flow 步骤的 from_state/to_state (idle/requested/reported) 都在
+    # state-machine:inspection 的 states 里声明过 —— 这是应当放行的绿色场景。
+    assert architecture["issues"] == []
     assert architecture["current"]["state"] == "OBSERVED"
     assert [item["id"] for item in model["flows"]] == ["flow:inspect"]
     assert [item["id"] for item in model["state_machines"]] == [
@@ -607,3 +611,812 @@ def test_desired_locator_may_point_at_a_file_that_does_not_exist_yet(tmp_path: P
     assert not [
         issue for issue in model["architecture"]["issues"] if "locator" in issue
     ]
+
+
+def _flow_state_fixture_entity() -> dict:
+    return {
+        "id": "service:x",
+        "kind": "service",
+        "name": "X service",
+        "responsibility": "Do X.",
+        "locator": "src/moth/inspection.py",
+        "evidence_ids": [],
+    }
+
+
+def test_flow_step_state_not_declared_in_any_state_machine_is_an_issue(
+    tmp_path: Path,
+) -> None:
+    """flow step 用的 from_state/to_state 必须真的在某台状态机的 states 里声明过。
+
+    2026-09 实测: moth 自己的 .moth/architecture.yaml 里, flow:inspect 的步骤用了
+    snapshot_ready / guidance_assessed / modeled 这三个状态词, 但唯一的状态机
+    state-machine:inspection 的 states 里压根没有它们 —— 因为当时只校验了 transition
+    的 from/to, 没校验 flow step 的, 这条内容矛盾一路绿灯, 两个渲染端都不显示。
+    """
+    _write_python_manifest(tmp_path)
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [_flow_state_fixture_entity()],
+                "relations": [],
+                "flows": [
+                    {
+                        "id": "flow:test",
+                        "name": "Test flow",
+                        "steps": [
+                            {
+                                "id": "step:one",
+                                "entity_id": "service:x",
+                                "action": "start",
+                                "from_state": "idle",
+                                "to_state": "snapshot_ready",
+                            },
+                            {
+                                "id": "step:two",
+                                "entity_id": "service:x",
+                                "action": "finish",
+                                "from_state": "snapshot_ready",
+                                "to_state": "done",
+                            },
+                        ],
+                        "evidence_ids": [],
+                    }
+                ],
+                "state_machines": [
+                    {
+                        "id": "state-machine:x",
+                        "entity_id": "service:x",
+                        "initial_state": "idle",
+                        "states": ["idle", "done"],
+                        "transitions": [],
+                        "evidence_ids": [],
+                    }
+                ],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert model["architecture"]["declaration_state"] == "INVALID"
+    issues = model["architecture"]["issues"]
+    assert any(
+        "flow:test" in issue and "snapshot_ready" in issue for issue in issues
+    ), issues
+
+
+def test_flow_step_without_state_fields_is_not_checked(tmp_path: Path) -> None:
+    """flow step 不写 from_state/to_state 时不该被这条新校验拦下。
+
+    flow:change-safety 的步骤就是这个形状(没有状态转移语义) —— 即使声明里存在状态机,
+    没提 from/to 的步骤必须继续放行。
+    """
+    _write_python_manifest(tmp_path)
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [_flow_state_fixture_entity()],
+                "relations": [],
+                "flows": [
+                    {
+                        "id": "flow:test",
+                        "name": "Test flow",
+                        "steps": [
+                            {
+                                "id": "step:one",
+                                "entity_id": "service:x",
+                                "action": "receive request",
+                            },
+                            {
+                                "id": "step:two",
+                                "entity_id": "service:x",
+                                "action": "produce result",
+                            },
+                        ],
+                        "evidence_ids": [],
+                    }
+                ],
+                "state_machines": [
+                    {
+                        "id": "state-machine:x",
+                        "entity_id": "service:x",
+                        "initial_state": "idle",
+                        "states": ["idle", "done"],
+                        "transitions": [],
+                        "evidence_ids": [],
+                    }
+                ],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert model["architecture"]["declaration_state"] == "DECLARED"
+    assert model["architecture"]["issues"] == []
+
+
+def test_flow_step_state_with_no_state_machines_declared_is_an_issue(
+    tmp_path: Path,
+) -> None:
+    """声明里一台状态机都没有时, 任何带 from_state/to_state 的 flow step 都该报 issue
+
+    ——状态词没有任何定义来源, 无从判断它是否合法。
+    """
+    _write_python_manifest(tmp_path)
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [_flow_state_fixture_entity()],
+                "relations": [],
+                "flows": [
+                    {
+                        "id": "flow:test",
+                        "name": "Test flow",
+                        "steps": [
+                            {
+                                "id": "step:one",
+                                "entity_id": "service:x",
+                                "action": "start",
+                                "from_state": "idle",
+                                "to_state": "running",
+                            },
+                            {
+                                "id": "step:two",
+                                "entity_id": "service:x",
+                                "action": "finish",
+                                "from_state": "running",
+                                "to_state": "done",
+                            },
+                        ],
+                        "evidence_ids": [],
+                    }
+                ],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert model["architecture"]["declaration_state"] == "INVALID"
+    issues = model["architecture"]["issues"]
+    assert any("flow:test" in issue and "idle" in issue for issue in issues), issues
+
+
+def test_flow_step_without_states_and_no_state_machines_is_not_checked(
+    tmp_path: Path,
+) -> None:
+    """边界: 声明里没有任何状态机, 且 flow step 也不带 from/to —— 无从谈起的校验不该触发。"""
+    _write_python_manifest(tmp_path)
+    _write_declared_sources(tmp_path, "src/moth/inspection.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [_flow_state_fixture_entity()],
+                "relations": [],
+                "flows": [
+                    {
+                        "id": "flow:test",
+                        "name": "Test flow",
+                        "steps": [
+                            {
+                                "id": "step:one",
+                                "entity_id": "service:x",
+                                "action": "receive request",
+                            },
+                            {
+                                "id": "step:two",
+                                "entity_id": "service:x",
+                                "action": "produce result",
+                            },
+                        ],
+                        "evidence_ids": [],
+                    }
+                ],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+
+    model = build_project_model(tmp_path)
+
+    assert model["architecture"]["declaration_state"] == "DECLARED"
+    assert model["architecture"]["issues"] == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: import graph elevated to the declared component layer (three-tier
+# verification). See module docstring history for the acceptance anchors this
+# was built against (moth's own .moth/architecture.yaml).
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_import_graph(*, roots: list[str], modules: list[str], edges: list[dict]) -> dict:
+    return {
+        "state": "OK",
+        "roots": roots,
+        "modules": sorted(modules),
+        "edges": edges,
+        "omitted": {"files": 0, "edges": 0},
+        "notes": [],
+        "issues": [],
+    }
+
+
+def _write_component_architecture(repo: Path) -> None:
+    """A small declared graph covering every branch of the M3 decision table.
+
+    service:a -> service:b   elevated edge exists              -> CONFIRMED
+    service:a -> service:c   no elevated edge, kind refutable   -> NOT_OBSERVED
+    application:ui -> service:a  ui is non-python (cross_language) -> NOT_VERIFIABLE
+    service:a -> service:d   no elevated edge, kind not refutable  -> NOT_VERIFIABLE
+    (service:a -> service:e exists as an elevated edge but is never declared
+     -> a new DETECTED "imports" relation must appear)
+    """
+    _write_declared_sources(
+        repo,
+        "src/pkg/a.py",
+        "src/pkg/b.py",
+        "src/pkg/c.py",
+        "src/pkg/d.py",
+        "src/pkg/e.py",
+        "ui/index.html",
+    )
+
+    def _entity(entity_id: str, kind: str, locator: str) -> dict:
+        return {
+            "id": entity_id,
+            "kind": kind,
+            "name": entity_id,
+            "responsibility": f"Fixture entity {entity_id}.",
+            "locator": locator,
+            "evidence_ids": ["doc"],
+        }
+
+    def _relation(rel_id: str, kind: str, source_id: str, target_id: str) -> dict:
+        return {
+            "id": rel_id,
+            "kind": kind,
+            "source_id": source_id,
+            "target_id": target_id,
+            "label": rel_id,
+            "evidence_ids": ["doc"],
+        }
+
+    _write_architecture(
+        repo,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [
+                {"id": "doc", "kind": "architecture_document", "path": "docs/architecture.md"}
+            ],
+            "current": {
+                "complete": True,
+                "entities": [
+                    _entity("service:a", "service", "src/pkg/a.py"),
+                    _entity("service:b", "service", "src/pkg/b.py"),
+                    _entity("service:c", "service", "src/pkg/c.py"),
+                    _entity("service:d", "service", "src/pkg/d.py"),
+                    _entity("service:e", "service", "src/pkg/e.py"),
+                    _entity("application:ui", "application", "ui/index.html"),
+                ],
+                "relations": [
+                    _relation("relation:confirmed", "calls", "service:a", "service:b"),
+                    _relation("relation:not-observed", "calls", "service:a", "service:c"),
+                    _relation("relation:cross-lang", "depends_on", "application:ui", "service:a"),
+                    _relation("relation:kind-scope", "depends_on", "service:a", "service:d"),
+                ],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+    docs = repo / "docs"
+    docs.mkdir(exist_ok=True)
+    (docs / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
+
+
+def test_import_graph_elevates_direct_edges_to_the_three_tier_verdict(
+    tmp_path: Path,
+) -> None:
+    _write_component_architecture(tmp_path)
+    import_graph = _synthetic_import_graph(
+        roots=["src"],
+        modules=["pkg.a", "pkg.b", "pkg.c", "pkg.d", "pkg.e"],
+        edges=[
+            {
+                "source": "pkg.a",
+                "target": "pkg.b",
+                "locations": [{"path": "src/pkg/a.py", "line": 5}],
+            },
+            {
+                "source": "pkg.a",
+                "target": "pkg.e",
+                "locations": [{"path": "src/pkg/a.py", "line": 9}],
+            },
+        ],
+    )
+
+    result = build_architecture_model(
+        tmp_path,
+        project=None,
+        applications=[],
+        runtimes=[],
+        modules=[],
+        import_graph=import_graph,
+    )
+
+    assert result["architecture"]["issues"] == []
+    assert result["architecture"]["declaration_state"] == "DECLARED"
+
+    relations_by_id = {item["id"]: item for item in result["relations"]}
+
+    confirmed = relations_by_id["relation:confirmed"]
+    assert confirmed["source"] == "CONFIRMED"
+    assert confirmed["verification"]["status"] == "CONFIRMED_BY_IMPORT"
+    assert confirmed["verification"]["locations"] == [{"path": "src/pkg/a.py", "line": 5}]
+
+    not_observed = relations_by_id["relation:not-observed"]
+    assert not_observed["source"] == "DECLARED"
+    assert not_observed["verification"]["status"] == "NOT_OBSERVED"
+
+    cross_lang = relations_by_id["relation:cross-lang"]
+    assert cross_lang["source"] == "DECLARED"
+    assert cross_lang["verification"] == {
+        "status": "NOT_VERIFIABLE",
+        "reason": "cross_language",
+    }
+
+    kind_scope = relations_by_id["relation:kind-scope"]
+    assert kind_scope["source"] == "DECLARED"
+    assert kind_scope["verification"] == {
+        "status": "NOT_VERIFIABLE",
+        "reason": "kind_outside_import_scope",
+    }
+
+    # Elevated edge with no matching declaration: a new DETECTED relation.
+    synthesized = relations_by_id["imports:service:a:service:e"]
+    assert synthesized["kind"] == "imports"
+    assert synthesized["source"] == "DETECTED"
+    assert synthesized["verification"]["status"] == "CONFIRMED_BY_IMPORT"
+    assert synthesized["verification"]["locations"] == [{"path": "src/pkg/a.py", "line": 9}]
+
+    entities_by_id = {item["id"]: item for item in result["entities"]}
+    assert entities_by_id["service:a"]["import_module"] == "pkg.a"
+    assert entities_by_id["application:ui"]["import_scope"] == "outside"
+    assert "import_module" not in entities_by_id["application:ui"]
+
+
+def test_import_graph_misconfigured_root_fails_closed(tmp_path: Path) -> None:
+    """A `.py` locator that cannot be mapped into any known module must be a loud
+    issue, not a silent NOT_VERIFIABLE -- otherwise one bad `roots` entry quietly
+    turns every relation unverifiable while the gate still looks green."""
+    _write_declared_sources(tmp_path, "src/pkg/a.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [
+                    {
+                        "id": "service:a",
+                        "kind": "service",
+                        "name": "A",
+                        "responsibility": "Fixture entity.",
+                        "locator": "src/pkg/a.py",
+                        "evidence_ids": [],
+                    }
+                ],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+    # Import graph configured with a root that does not cover src/pkg/a.py at all.
+    import_graph = _synthetic_import_graph(roots=["elsewhere"], modules=["unrelated"], edges=[])
+
+    result = build_architecture_model(
+        tmp_path,
+        project=None,
+        applications=[],
+        runtimes=[],
+        modules=[],
+        import_graph=import_graph,
+    )
+
+    assert result["architecture"]["declaration_state"] == "INVALID"
+    assert any(
+        "service:a" in issue and "src/pkg/a.py" in issue
+        for issue in result["architecture"]["issues"]
+    ), result["architecture"]["issues"]
+
+
+def test_import_graph_not_configured_makes_declared_relations_unverifiable(
+    tmp_path: Path,
+) -> None:
+    """M5: no import graph must never manufacture a NOT_OBSERVED verdict, and must
+    never flip declaration_state to INVALID by itself."""
+    _write_declared_sources(tmp_path, "src/pkg/a.py", "src/pkg/b.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": True,
+                "entities": [
+                    {
+                        "id": "service:a",
+                        "kind": "service",
+                        "name": "A",
+                        "responsibility": "Fixture entity.",
+                        "locator": "src/pkg/a.py",
+                        "evidence_ids": [],
+                    },
+                    {
+                        "id": "service:b",
+                        "kind": "service",
+                        "name": "B",
+                        "responsibility": "Fixture entity.",
+                        "locator": "src/pkg/b.py",
+                        "evidence_ids": [],
+                    },
+                ],
+                "relations": [
+                    {
+                        "id": "relation:a-b",
+                        "kind": "calls",
+                        "source_id": "service:a",
+                        "target_id": "service:b",
+                        "label": "calls",
+                        "evidence_ids": [],
+                    }
+                ],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+    # No pyproject.toml at all -> self-derivation cannot infer any roots.
+
+    result = build_architecture_model(
+        tmp_path,
+        project=None,
+        applications=[],
+        runtimes=[],
+        modules=[],
+    )
+
+    assert result["architecture"]["declaration_state"] == "DECLARED"
+    relation = next(
+        item for item in result["relations"] if item["id"] == "relation:a-b"
+    )
+    assert relation["verification"] == {
+        "status": "NOT_VERIFIABLE",
+        "reason": "import_graph_not_configured",
+    }
+    assert relation["source"] == "DECLARED"
+
+
+def test_declared_relation_without_import_confirmation_is_unverifiable_drift() -> None:
+    """M6: a relation that is only DECLARED (no import evidence) can no longer be
+    reported CONFORMANT -- that was the bug this whole step exists to fix."""
+    current = {
+        "complete": True,
+        "entities": [],
+        "relations": [
+            {
+                "id": "relation:x",
+                "kind": "calls",
+                "source_id": "service:a",
+                "target_id": "service:b",
+                "label": "calls",
+                "evidence_ids": ["observed"],
+                "source": "DECLARED",
+                "verification": {
+                    "status": "NOT_OBSERVED",
+                    "reason": "not_observed_in_static_imports",
+                },
+            }
+        ],
+        "flows": [],
+        "state_machines": [],
+    }
+    desired = {
+        "entities": [],
+        "relations": [
+            {
+                "id": "relation:x",
+                "kind": "calls",
+                "source_id": "service:a",
+                "target_id": "service:b",
+                "label": "calls",
+                "expectation": "REQUIRED",
+                "evidence_ids": ["declared"],
+            }
+        ],
+        "flows": [],
+        "state_machines": [],
+    }
+
+    drift = build_architecture_drift(current=current, desired=desired)
+
+    assert drift["state"] == "UNVERIFIABLE"
+    finding = drift["findings"][0]
+    assert finding["status"] == "UNVERIFIABLE"
+    assert "NOT_OBSERVED" in finding["reason"]
+    assert "observation_basis" not in finding
+
+
+def test_confirmed_relation_is_conformant_with_import_graph_observation_basis() -> None:
+    current = {
+        "complete": True,
+        "entities": [],
+        "relations": [
+            {
+                "id": "relation:x",
+                "kind": "calls",
+                "source_id": "service:a",
+                "target_id": "service:b",
+                "label": "calls",
+                "evidence_ids": ["observed"],
+                "source": "CONFIRMED",
+                "verification": {
+                    "status": "CONFIRMED_BY_IMPORT",
+                    "reason": "confirmed_by_import_edge",
+                    "locations": [{"path": "src/a.py", "line": 3}],
+                },
+            }
+        ],
+        "flows": [],
+        "state_machines": [],
+    }
+    desired = {
+        "entities": [],
+        "relations": [
+            {
+                "id": "relation:x",
+                "kind": "calls",
+                "source_id": "service:a",
+                "target_id": "service:b",
+                "label": "calls",
+                "expectation": "REQUIRED",
+                "evidence_ids": ["declared"],
+            }
+        ],
+        "flows": [],
+        "state_machines": [],
+    }
+
+    drift = build_architecture_drift(current=current, desired=desired)
+
+    finding = drift["findings"][0]
+    assert finding["status"] == "CONFORMANT"
+    assert finding["observation_basis"] == "import_graph"
+    assert drift["state"] == "CONFORMANT"
+
+
+def test_required_entity_conformance_notes_locator_only_observation_basis() -> None:
+    """Entities keep their existing CONFORMANT verdict (their locator was already
+    checked to exist), but must not claim the responsibility text was verified."""
+    entity = {
+        "id": "service:x",
+        "kind": "service",
+        "name": "X",
+        "responsibility": "Do X.",
+        "locator": "src/x.py",
+        "evidence_ids": ["observed"],
+        "source": "DECLARED",
+    }
+    current = {
+        "complete": True,
+        "entities": [entity],
+        "relations": [],
+        "flows": [],
+        "state_machines": [],
+    }
+    desired_entity = {
+        "id": "service:x",
+        "kind": "service",
+        "name": "X",
+        "responsibility": "Do X.",
+        "locator": "src/x.py",
+        "expectation": "REQUIRED",
+        "evidence_ids": ["declared"],
+    }
+    desired = {
+        "entities": [desired_entity],
+        "relations": [],
+        "flows": [],
+        "state_machines": [],
+    }
+
+    drift = build_architecture_drift(current=current, desired=desired)
+
+    finding = drift["findings"][0]
+    assert finding["status"] == "CONFORMANT"
+    assert finding["observation_basis"] == "locator_exists"
+
+
+def test_required_flow_match_is_always_unverifiable_no_detector() -> None:
+    """M6: flows and state machines have no detector at all, so a match against
+    the declaration can never be treated as independently observed."""
+    flow = {
+        "id": "flow:x",
+        "name": "Flow X",
+        "steps": [],
+        "evidence_ids": ["observed"],
+    }
+    current = {
+        "complete": True,
+        "entities": [],
+        "relations": [],
+        "flows": [flow],
+        "state_machines": [],
+    }
+    desired_flow = {
+        "id": "flow:x",
+        "name": "Flow X",
+        "steps": [],
+        "expectation": "REQUIRED",
+        "evidence_ids": ["declared"],
+    }
+    desired = {
+        "entities": [],
+        "relations": [],
+        "flows": [desired_flow],
+        "state_machines": [],
+    }
+
+    drift = build_architecture_drift(current=current, desired=desired)
+
+    finding = drift["findings"][0]
+    assert finding["status"] == "UNVERIFIABLE"
+    assert "observation_basis" not in finding
+
+
+def test_moth_self_hosting_import_graph_verification_matches_accepted_anchors() -> None:
+    """End-to-end acceptance anchor: moth inspecting itself.
+
+    These exact counts were measured by hand against moth's own
+    .moth/architecture.yaml and are pinned here as a regression net. If this
+    goes red because the declaration or the source tree changed, update the
+    anchor -- do not loosen the assertions to make it pass.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+
+    model = build_project_model(repo_root)
+    architecture = model["architecture"]
+
+    assert architecture["declaration_state"] == "DECLARED"
+    assert architecture["issues"] == []
+
+    relations = model["relations"]
+    declared_ids = {
+        "relation:inspection-snapshot",
+        "relation:project-architecture",
+        "relation:inspection-change-safety",
+        "relation:inspection-guidance-application",
+        "relation:visual-html",
+        "relation:web-service-inspection",
+        "relation:web-service-visual",
+        "relation:web-app-service",
+        "relation:web-launcher-server",
+        "relation:web-server-app",
+        "relation:web-registry-config",
+        "relation:web-console-api",
+    }
+    by_id = {item["id"]: item for item in relations if item["id"] in declared_ids}
+    assert set(by_id) == declared_ids
+
+    confirmed_ids = {
+        rel_id
+        for rel_id, rel in by_id.items()
+        if rel["verification"]["status"] == "CONFIRMED_BY_IMPORT"
+    }
+    not_observed_ids = {
+        rel_id
+        for rel_id, rel in by_id.items()
+        if rel["verification"]["status"] == "NOT_OBSERVED"
+    }
+    not_verifiable_ids = {
+        rel_id
+        for rel_id, rel in by_id.items()
+        if rel["verification"]["status"] == "NOT_VERIFIABLE"
+    }
+
+    assert len(confirmed_ids) == 8, confirmed_ids
+    assert not_observed_ids == {"relation:inspection-guidance-application"}
+    assert not_verifiable_ids == {
+        "relation:web-console-api",
+        "relation:web-launcher-server",
+        "relation:visual-html",
+    }
+
+    detected_import_relations = [
+        item for item in relations if item.get("kind") == "imports"
+    ]
+    assert len(detected_import_relations) >= 4, len(detected_import_relations)
+    detected_pairs = {
+        (item["source_id"], item["target_id"]) for item in detected_import_relations
+    }
+    for pair in [
+        ("service:web-app", "service:web-config"),
+        ("service:web-server", "service:web-config"),
+        ("service:web-server", "service:web-registry"),
+        ("service:web-service", "service:web-config"),
+    ]:
+        assert pair in detected_pairs, (pair, detected_pairs)

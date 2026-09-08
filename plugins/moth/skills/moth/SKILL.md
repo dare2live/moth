@@ -189,6 +189,21 @@ prose is provenance only, and `UNVERIFIABLE` is not a drift pass.
 Never export Skill bodies, private paths, task text, amend trails, raw Omen
 output, or receipt working files in public artifacts.
 
+## DuckDB growth (2026-08-26)
+
+`file_size` bands cannot see DuckDB bloat. `DROP` / `DELETE` / `UPDATE` leave
+dead blocks; `CHECKPOINT` does not shrink the file. A size ratchet that is
+raised after "measured legitimate growth" will green-light a file that is 25%
+empty. Snapshot now scans `data/*.duckdb` and warns at 10% `free_blocks`.
+New DB files are included by glob even without a claim. Blocking thresholds
+stay in the target repo. Compact is the writer's job; detection without
+reclaim repeats the incident.
+
+Do not overlay moth's complexity builtin from
+`Kappaemme-git/codex-complexity-optimizer` 0.1.1 — upstream is a one-commit
+tree that lacks N+1 and comprehension nesting. CodeGraph latest remains 1.5.0
+(re-checked 2026-08-26).
+
 ## Maintenance requests
 
 When the user asks to update or upgrade Moth-related tools and Skills:
