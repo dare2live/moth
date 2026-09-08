@@ -13,6 +13,7 @@ from moth.checks.import_graph import (
     infer_import_roots,
     load_import_graph_policy,
 )
+from moth.visual_policy import load_visual_policy
 
 # 每个实体/关系的**来源**。这是 as_is 里最容易撒谎的一处:
 # 合并之后声明来的和检测来的长得一模一样, 于是一张全靠人手写的图也会显示成"当前结构 OBSERVED"。
@@ -267,6 +268,71 @@ def _build_elevated_edges(
     return elevated
 
 
+def _impact_list_budget() -> int:
+    """P1: imported_by/imports_direct 各自最多列几个模块名, 从 visual_policy.yaml
+    读, 不 hardcode —— 这是"列表放多少"的展示判断, 与 fan_in/fan_out(永远完整计数)
+    分开管。
+    """
+
+    return int(load_visual_policy()["limits"]["impact_list_max"])
+
+
+def _module_impact_index(
+    edges: list[dict[str, Any]],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """P1: 模块级 fan-in/fan-out 索引 —— 对每个模块, 谁直接 import 它 / 它直接
+    import 谁。
+
+    刻意在 import_graph 的**模块边**上算, 不是提升到组件层的边(_build_elevated_edges
+    只覆盖两端都是声明实体的边)—— "改这个会影响谁"这个问题的答案天然包含大量从未
+    被声明为组件的模块(2026-09-08 实测: moth 自己 fan_in 前六里的模块, 大多数在
+    architecture.yaml 里都找不到对应的声明实体)。edges 里每个 (source, target) 对
+    在 build_import_graph 的输出里保证只出现一次, 所以这里不需要再去重。
+    """
+
+    sources_by_target: dict[str, list[str]] = {}
+    targets_by_source: dict[str, list[str]] = {}
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        if not source or not target:
+            continue
+        sources_by_target.setdefault(target, []).append(source)
+        targets_by_source.setdefault(source, []).append(target)
+    return sources_by_target, targets_by_source
+
+
+def _impact_fields_for_module(
+    module: str,
+    sources_by_target: dict[str, list[str]],
+    targets_by_source: dict[str, list[str]],
+    list_budget: int,
+) -> dict[str, Any]:
+    """P1: 单个模块的影响面字段。fan_in/fan_out 永远是完整计数, 不受列表预算影响 ——
+    这样"被 23 个模块依赖, 下面列了 8 个"才是诚实的, 列表本身按 list_budget 截断,
+    超出部分写成 *_omitted 计数, 不静默丢。
+    """
+
+    imported_by_all = sorted(set(sources_by_target.get(module, [])))
+    imports_direct_all = sorted(set(targets_by_source.get(module, [])))
+    kept_budget = max(0, list_budget)
+    imported_by = imported_by_all[:kept_budget]
+    imports_direct = imports_direct_all[:kept_budget]
+    fields: dict[str, Any] = {
+        "fan_in": len(imported_by_all),
+        "fan_out": len(imports_direct_all),
+        "imported_by": imported_by,
+        "imports_direct": imports_direct,
+    }
+    omitted_in = len(imported_by_all) - len(imported_by)
+    omitted_out = len(imports_direct_all) - len(imports_direct)
+    if omitted_in:
+        fields["imported_by_omitted"] = omitted_in
+    if omitted_out:
+        fields["imports_direct_omitted"] = omitted_out
+    return fields
+
+
 def _relation_kind_policy() -> tuple[set[str], set[str]]:
     """M4: refutable/confirmable relation kinds 从 architecture_policy.yaml 读, 不 hardcode。"""
 
@@ -343,6 +409,12 @@ def _verify_relations_against_import_graph(
     roots = list(import_graph.get("roots") or [])
     known_modules = set(import_graph.get("modules") or [])
     refutable_kinds, confirmable_kinds = _relation_kind_policy()
+    # P1: 模块级 fan-in/fan-out 索引算一次, 下面按实体逐个查表, 不对每个实体重新
+    # 扫一遍全量边集。
+    sources_by_target, targets_by_source = _module_impact_index(
+        import_graph.get("edges") or []
+    )
+    impact_list_budget = _impact_list_budget()
 
     entity_info: dict[str, dict[str, str | None]] = {}
     tagged_entities: list[dict[str, Any]] = []
@@ -356,6 +428,14 @@ def _verify_relations_against_import_graph(
         tagged = dict(entity)
         if module:
             tagged["import_module"] = module
+            # P1: 只给**能映射到模块**的实体算影响面 —— import_scope=="outside"
+            # 的实体(index.html / start.command 之类)不写这些字段, 不能补 0
+            # (0 会被读成"没人依赖它", 真相是"这个工具看不到")。
+            tagged.update(
+                _impact_fields_for_module(
+                    module, sources_by_target, targets_by_source, impact_list_budget
+                )
+            )
         if scope:
             tagged["import_scope"] = scope
         tagged_entities.append(tagged)

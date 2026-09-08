@@ -225,7 +225,19 @@
         "source": {"$ref": "#/$defs/provenanceSource"},
         "expectation": {"enum": ["REQUIRED", "FORBIDDEN"]},
         "import_module": {"type": "string", "minLength": 1},
-        "import_scope": {"enum": ["outside"]}
+        "import_scope": {"enum": ["outside"]},
+        "fan_in": {"type": "integer", "minimum": 0},
+        "fan_out": {"type": "integer", "minimum": 0},
+        "imported_by": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "imports_direct": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "imported_by_omitted": {"type": "integer", "minimum": 1},
+        "imports_direct_omitted": {"type": "integer", "minimum": 1}
       },
       "additionalProperties": false
     },

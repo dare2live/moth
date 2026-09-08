@@ -187,6 +187,43 @@
     ui.dialog.showModal();
   }
 
+  // P1/P2: architecture_model 算出的模块级影响面(fan_in/fan_out + 两个模块名列表)
+  // 混在 entity.attributes 这个开放对象里, 但学习者最想问的问题("我改这个会影响谁")
+  // 值得单独成一节, 而不是淹在一堆原始字段名的 <dl> 里 —— 所以先从 attributes 里摘出来
+  // 单独渲染, 再把这几个键从通用属性表里排除掉, 不重复出现两遍。
+  const IMPACT_ATTRIBUTE_KEYS = new Set([
+    "fan_in", "fan_out", "imported_by", "imports_direct",
+    "imported_by_omitted", "imports_direct_omitted"
+  ]);
+
+  // 大白话渲染, 不直接把 fan_in/fan_out 这类字段名摆给用户看。模块名旁边不编造
+  // 文件路径 —— 只有 import_module 是已知的, 列表里的其它模块名可能根本没有对应
+  // 声明实体, 从名字反推 .py 路径就是在编事实。
+  function impactSection(attrs) {
+    const hasFanIn = typeof attrs.fan_in === "number";
+    const hasFanOut = typeof attrs.fan_out === "number";
+    if (!hasFanIn && !hasFanOut) return null;
+    const box = node("div", null, "impact-section");
+    box.append(node("h3", "影响面"));
+    if (hasFanIn) {
+      box.append(node("p", `被 ${attrs.fan_in} 个模块直接导入`, "impact-line"));
+      const names = Array.isArray(attrs.imported_by) ? attrs.imported_by : [];
+      if (names.length) box.append(node("p", names.join("、"), "impact-list"));
+      if (attrs.imported_by_omitted) {
+        box.append(node("p", `还有 ${attrs.imported_by_omitted} 个未列出`, "impact-omitted"));
+      }
+    }
+    if (hasFanOut) {
+      box.append(node("p", `直接导入 ${attrs.fan_out} 个模块`, "impact-line"));
+      const names = Array.isArray(attrs.imports_direct) ? attrs.imports_direct : [];
+      if (names.length) box.append(node("p", names.join("、"), "impact-list"));
+      if (attrs.imports_direct_omitted) {
+        box.append(node("p", `还有 ${attrs.imports_direct_omitted} 个未列出`, "impact-omitted"));
+      }
+    }
+    return box;
+  }
+
   function openEntity(entity) {
     clear(ui.evidenceBody);
     ui.evidenceTitle.textContent = entity.name;
@@ -196,7 +233,11 @@
     const statusPlain = termHint(entity.status);
     if (statusPlain) meta.append(node("span", statusPlain, "term-plain"));
     ui.evidenceBody.append(meta, node("p", entity.summary, "detail-summary"));
-    const attributes = Object.entries(entity.attributes || {}).filter(([, value]) => value !== null && value !== "");
+    const impact = impactSection(entity.attributes || {});
+    if (impact) ui.evidenceBody.append(impact);
+    const attributes = Object.entries(entity.attributes || {}).filter(
+      ([key, value]) => value !== null && value !== "" && !IMPACT_ATTRIBUTE_KEYS.has(key)
+    );
     if (attributes.length) {
       const list = node("dl", null, "attribute-list");
       attributes.forEach(([key, value]) => {
@@ -489,6 +530,13 @@
         "arch-meta-note"
       ));
     }
+    // P3: "我改这个会影响谁" —— 点一个组件, 高亮它的直接上下游, 图头说清楚怎么用、
+    // 怎么恢复。视觉区分(上游 vs 下游)另在图例里给一组样例色块, 这里只说交互。
+    meta.append(node(
+      "p",
+      "点击一个组件可高亮它的直接上下游；再次点击该组件，或点击空白处，可恢复整张图。",
+      "arch-meta-hint"
+    ));
     return meta;
   }
 
@@ -531,6 +579,23 @@
       group.append(list);
       legend.append(group);
     }
+
+    // P3: 高亮读法是常驻内容(与这张图具体画了什么数据无关), 不像上面两组那样
+    // 按"图上实际出现的项"过滤 —— 只要图被画出来(能走到这个函数), 点选交互就存在。
+    const highlightGroup = node("div", null, "arch-legend-group");
+    highlightGroup.append(node("h3", "点选高亮"));
+    const highlightList = node("ul");
+    [
+      ["hl-upstream-swatch", "依赖它的（上游）"],
+      ["hl-downstream-swatch", "它依赖的（下游）"]
+    ].forEach(([swatchClass, label]) => {
+      const li = node("li");
+      li.append(node("span", null, `legend-swatch ${swatchClass}`));
+      li.append(node("span", label));
+      highlightList.append(li);
+    });
+    highlightGroup.append(highlightList);
+    legend.append(highlightGroup);
 
     return legend.children.length ? legend : null;
   }
@@ -584,6 +649,46 @@
     }
 
     wrap.append(architectureMeta(ids, edges, policy, asIs));
+
+    // P3: "我改这个会影响谁" —— 点选一个节点, 高亮它的直接上下游边和节点, 其余淡出。
+    // 只依据这张图上真的存在的边(上面已经过滤到 idSet 内的 edges), 不做传递闭包:
+    // "间接影响"没有边作依据, 画出来就是把猜测说成事实。selectedId 是这次渲染自己的
+    // 状态, 每次重新画图都会拿到一个全新的闭包, 不会跨渲染泄漏。
+    let selectedId = null;
+    function applyHighlight() {
+      const upstream = new Set();   // 谁指向 selectedId(依赖它的)
+      const downstream = new Set(); // selectedId 指向谁(它依赖的)
+      if (selectedId) {
+        edges.forEach((r) => {
+          if (r.target_id === selectedId) upstream.add(r.source_id);
+          if (r.source_id === selectedId) downstream.add(r.target_id);
+        });
+      }
+      svg.querySelectorAll(".arch-node").forEach((n) => {
+        const nid = n.dataset.entityId;
+        const isSelf = nid === selectedId;
+        const isUp = upstream.has(nid);
+        const isDown = downstream.has(nid);
+        n.classList.toggle("hl-self", isSelf);
+        n.classList.toggle("hl-upstream", isUp);
+        n.classList.toggle("hl-downstream", isDown);
+        n.classList.toggle("dim", Boolean(selectedId) && !isSelf && !isUp && !isDown);
+      });
+      svg.querySelectorAll(".arch-edge").forEach((l) => {
+        const isUp = Boolean(selectedId) && l.dataset.targetId === selectedId;
+        const isDown = Boolean(selectedId) && l.dataset.sourceId === selectedId;
+        l.classList.toggle("hl-upstream", isUp);
+        l.classList.toggle("hl-downstream", isDown);
+        l.classList.toggle("dim", Boolean(selectedId) && !isUp && !isDown);
+      });
+    }
+    // 键盘 Tab 聚焦到一个节点时也应用同一份高亮(题面: "点选(或键盘聚焦)一个节点时,
+    // 高亮…"), 但只认真正的键盘聚焦(:focus-visible), 不认"鼠标点击顺带拿到了焦点"的
+    // 那次聚焦 —— 否则一次鼠标点击会先被 focus 置上高亮, 紧接着又被 click 的 toggle
+    // 逻辑判定成"已经选中, 再点一次要取消"而立刻抵消掉, 表现为点了跟没点一样。
+    function isFocusVisible(el) {
+      try { return el.matches(":focus-visible"); } catch { return false; }
+    }
 
     // 先按最长名定宽(留 16px 内边距), 夹在 [MIN, MAX] 之间; 超过 MAX 才截断。
     const longest = Math.max(...entities.map((e) => String(e.name || e.id).length));
@@ -695,6 +800,9 @@
       const style = r.source ? (lineStyles[r.source] || "solid") : "solid";
       line.setAttribute("class", `arch-edge${style === "dashed" ? " dashed" : ""}`);
       line.setAttribute("marker-end", `url(#${style === "dashed" ? "arch-arrow-hollow" : "arch-arrow-solid"})`);
+      // P3: 高亮时按这两个查这条边是不是选中节点的上游/下游边, 不重新遍历 relations。
+      line.dataset.sourceId = r.source_id;
+      line.dataset.targetId = r.target_id;
       const title = document.createElementNS(ns, "title");
       const base = r.label || r.kind || "";
       // N3: hover 提示在关系读法基础上追加"来源 + 证据" —— 这是"图上看见"到
@@ -740,14 +848,34 @@
       const title = document.createElementNS(ns, "title");
       title.textContent = `${e.name || e.id}\n${e.kind || ""}\n${e.responsibility || ""}`;
       g.append(title);
-      // 点节点 -> 复用既有的实体详情抽屉(kind / 职责 / 属性 / 证据)。
-      // 这是"图上看见"到"知道在哪个文件"的桥 —— 没有它, 图停在好看但学不到。
-      // 不另造面板: openEntity 已经在做同一件事, 多一个面板就是多一份会漂的实现。
-      g.addEventListener("click", () => openEntity(e));
+      // P3: 点击 -> 切换"高亮这个节点的直接上下游"(再点一次同一个节点恢复全图)。
+      // 键盘 Tab 移动焦点到节点上时(:focus-visible, 排除鼠标点击顺带拿到的焦点)
+      // 直接应用高亮, 不需要额外按键 —— 这样"点选(或键盘聚焦)时高亮"两种入口都成立。
+      // Enter/Space 打开详情抽屉是**已有行为**, 原样保留, 不与高亮互相替代。
+      g.addEventListener("click", () => {
+        selectedId = selectedId === e.id ? null : e.id;
+        applyHighlight();
+      });
+      g.addEventListener("focus", () => {
+        if (isFocusVisible(g) && selectedId !== e.id) {
+          selectedId = e.id;
+          applyHighlight();
+        }
+      });
       g.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openEntity(e); }
       });
       svg.append(g);
+    });
+
+    // 点击空白处(节点之外的任何地方)恢复全图 —— 判据是"这次点击的目标不在任何
+    // .arch-node 内部", 节点自己的 click 监听器已经处理了点在节点上的情形,
+    // 这里只补"点在节点外"的那一半, 不重复触发 toggle。
+    svg.addEventListener("click", (ev) => {
+      if (selectedId && !ev.target.closest(".arch-node")) {
+        selectedId = null;
+        applyHighlight();
+      }
     });
 
     if (unconnectedIds.length) {
@@ -798,6 +926,37 @@
     return `${base} —— 但当前结构里 ${p.declared}/${total} 本身来自这份声明, 这一栏多半是声明在跟自己比`;
   }
 
+  // P4: "我该先读哪几个" —— 按 fan_in 降序给前 5 个组件, 点击直接跳到详情抽屉。
+  // 只在数据真的存在时渲染整块: fan_in 只在 import_graph.state=="OK" 且实体映射
+  // 得到模块时才会出现在 attributes 里(见 architecture_model.py P1), 所以"至少
+  // 一个组件带 fan_in"本身就是 import 图可用的证明, 不需要另外去查 import_graph 状态。
+  // 一个都没有就整块不渲染 —— 不显示一个全是 0 的榜单。
+  function mostDependedOnPanel(entities) {
+    const ranked = entities
+      .filter((e) => typeof e.attributes?.fan_in === "number")
+      .sort((a, b) => b.attributes.fan_in - a.attributes.fan_in || a.name.localeCompare(b.name))
+      .slice(0, 5);
+    if (!ranked.length) return null;
+    const box = node("div", null, "arch-most-depended");
+    box.append(node("h3", "被依赖最多的组件"));
+    const list = node("ol");
+    ranked.forEach((e) => {
+      const li = node("li");
+      const button = node("button", null, "quiet arch-most-depended-item");
+      button.type = "button";
+      button.append(
+        node("span", e.name, "arch-most-depended-name"),
+        node("span", `被 ${e.attributes.fan_in} 个模块直接导入`, "arch-most-depended-count")
+      );
+      // 点击 -> 复用既有的实体详情抽屉, 与架构图节点、流程步骤是同一座桥。
+      button.addEventListener("click", () => openEntity(e));
+      li.append(button);
+      list.append(li);
+    });
+    box.append(list);
+    return box;
+  }
+
   function architectureBlock() {
     const architecture = state.document.architecture;
     const summary = architecture.summary;
@@ -830,6 +989,9 @@
     const doc = state.document;
     const ents = itemsById(architecture.as_is.entity_ids, doc.entities);
     const rels = itemsById(architecture.as_is.relation_ids, doc.relations);
+    // "我该先读哪几个" 放在完整图之前 —— 先给一份短名单, 再给全貌。
+    const mostDepended = mostDependedOnPanel(ents);
+    if (mostDepended) wrap.append(mostDepended);
     const diagram = architectureDiagram(ents, rels, architecture.as_is);
     if (diagram) wrap.append(diagram);
     const flowNote = architectureFlowNote(doc);

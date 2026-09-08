@@ -1127,6 +1127,133 @@ def test_application_entity_keeps_import_scope_after_applications_loop_rebuild()
     assert attributes["entrypoint"] == "sample.cli:main"
 
 
+def test_entity_attributes_include_impact_fields_when_present() -> None:
+    """P2: fan_in/fan_out/imported_by/imports_direct 是 architecture_model 算出的
+    影响面数据, 透传方式与 import_module/import_scope 完全一致 —— 有就带进
+    attributes, 缺就不写。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "service:worker",
+                    "kind": "service",
+                    "name": "Worker",
+                    "responsibility": "Do the work.",
+                    "locator": "src/worker.py",
+                    "import_module": "sample.worker",
+                    "fan_in": 3,
+                    "fan_out": 1,
+                    "imported_by": ["sample.a", "sample.b", "sample.c"],
+                    "imports_direct": ["sample.util"],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [],
+            "state_machines": [],
+        }
+    )
+
+    model = build_visual_model(inspection)
+    attributes = model["entities"]["service:worker"]["attributes"]
+
+    assert attributes["fan_in"] == 3
+    assert attributes["fan_out"] == 1
+    assert attributes["imported_by"] == ["sample.a", "sample.b", "sample.c"]
+    assert attributes["imports_direct"] == ["sample.util"]
+
+
+def test_entity_attributes_carry_omitted_impact_counts_when_present() -> None:
+    """超预算的 *_omitted 计数必须透传, 不能被当成普通属性悄悄丢掉。"""
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "service:hub",
+                    "kind": "service",
+                    "name": "Hub",
+                    "responsibility": "Central hub.",
+                    "locator": "src/hub.py",
+                    "import_module": "sample.hub",
+                    "fan_in": 12,
+                    "fan_out": 0,
+                    "imported_by": [f"sample.c{i}" for i in range(8)],
+                    "imports_direct": [],
+                    "imported_by_omitted": 4,
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [],
+            "state_machines": [],
+        }
+    )
+
+    model = build_visual_model(inspection)
+    attributes = model["entities"]["service:hub"]["attributes"]
+
+    assert attributes["fan_in"] == 12
+    assert attributes["imported_by_omitted"] == 4
+    assert "imports_direct_omitted" not in attributes
+
+
+def test_entity_attributes_omit_impact_fields_when_absent() -> None:
+    """没有影响面数据(比如 import 图管不到这个实体)时不能补 0 或空列表。"""
+    model = build_visual_model(inspection_fixture())
+    entity = next(iter(model["entities"].values()))
+
+    for key in ("fan_in", "fan_out", "imported_by", "imports_direct"):
+        assert key not in entity["attributes"]
+
+
+def test_application_entity_keeps_impact_fields_after_applications_loop_rebuild() -> None:
+    """与 import_module/import_scope 同一个坑: applications 集合按同一个 id 重建
+    entity 时, 若不把影响面数据也一并合并回去, 会在 rebuild 后整个丢失。
+    """
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [
+                {
+                    "id": "python-console:sample",
+                    "kind": "application",
+                    "name": "sample",
+                    "responsibility": "Application entrypoint.",
+                    "locator": "sample.cli:main",
+                    "import_module": "sample.cli",
+                    "fan_in": 2,
+                    "fan_out": 5,
+                    "imported_by": ["sample.tests"],
+                    "imports_direct": ["sample.core"],
+                    "evidence_ids": ["manifest:pyproject.toml"],
+                }
+            ],
+            "relations": [],
+            "flows": [],
+            "state_machines": [],
+        }
+    )
+    # applications 集合里同一个 id 的重建条目故意**不带**影响面字段 ——
+    # 这正是实测里丢字段的那次覆盖。
+
+    model = build_visual_model(inspection)
+    attributes = model["entities"]["python-console:sample"]["attributes"]
+
+    assert attributes["fan_in"] == 2
+    assert attributes["fan_out"] == 5
+    assert attributes["imported_by"] == ["sample.tests"]
+    assert attributes["imports_direct"] == ["sample.core"]
+
+
 def test_kind_reading_registers_the_imports_relation() -> None:
     """N1: imports 是 architecture_model 真实产出的 relation kind(共享 import 图
     提升到组件层的边), 图例此前找不到它的读法, 显示"未登记读法"。

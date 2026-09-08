@@ -10,6 +10,10 @@ limits:
   # N2: 一条关系最多带几条 verification.locations(代码坐标)—— 超出的数量必须
   # 如实写成 omitted_locations 计数, 不能悄悄截断。
   verification_locations_per_relation: 3
+  # P1(Phase 3): 一个实体的 imported_by / imports_direct 各最多列几个模块名 ——
+  # fan_in/fan_out 永远是完整计数, 超出这个预算的部分写成 imported_by_omitted /
+  # imports_direct_omitted 计数, 不静默丢。
+  impact_list_max: 8
 status_labels:
   PASS: 状态稳定
   WARN: 需要谨慎

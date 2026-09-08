@@ -1420,3 +1420,193 @@ def test_moth_self_hosting_import_graph_verification_matches_accepted_anchors() 
         ("service:web-service", "service:web-config"),
     ]:
         assert pair in detected_pairs, (pair, detected_pairs)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 P1: module-level fan-in/fan-out impact data on entities that map to
+# a module. This is deliberately computed over the *full* import graph, not
+# the elevated component-layer edges -- "who does changing this affect" must
+# include modules that were never declared as a component.
+# ---------------------------------------------------------------------------
+
+
+def test_entities_get_module_level_impact_fields_from_shared_import_graph(
+    tmp_path: Path,
+) -> None:
+    """fan_in/fan_out must count *modules*, including ones with no declared entity."""
+    _write_component_architecture(tmp_path)
+    import_graph = _synthetic_import_graph(
+        roots=["src"],
+        modules=["pkg.a", "pkg.b", "pkg.c", "pkg.d", "pkg.e", "pkg.undeclared"],
+        edges=[
+            {
+                "source": "pkg.a",
+                "target": "pkg.b",
+                "locations": [{"path": "src/pkg/a.py", "line": 5}],
+            },
+            {
+                "source": "pkg.a",
+                "target": "pkg.e",
+                "locations": [{"path": "src/pkg/a.py", "line": 9}],
+            },
+            # A module that was never declared as a component also imports
+            # pkg.b -- fan_in must count it even though it has no entity.
+            {
+                "source": "pkg.undeclared",
+                "target": "pkg.b",
+                "locations": [{"path": "src/pkg/undeclared.py", "line": 1}],
+            },
+        ],
+    )
+
+    result = build_architecture_model(
+        tmp_path,
+        project=None,
+        applications=[],
+        runtimes=[],
+        modules=[],
+        import_graph=import_graph,
+    )
+
+    entities_by_id = {item["id"]: item for item in result["entities"]}
+    b = entities_by_id["service:b"]
+    assert b["fan_in"] == 2
+    assert b["imported_by"] == ["pkg.a", "pkg.undeclared"]
+    assert "imported_by_omitted" not in b
+    assert b["fan_out"] == 0
+    assert b["imports_direct"] == []
+
+    a = entities_by_id["service:a"]
+    assert a["fan_out"] == 2
+    assert sorted(a["imports_direct"]) == ["pkg.b", "pkg.e"]
+
+    # An entity outside the import graph's jurisdiction must not get any of
+    # these fields -- writing 0 would be read as "nobody depends on it",
+    # when the truth is "this tool cannot see it".
+    ui_entity = entities_by_id["application:ui"]
+    assert ui_entity["import_scope"] == "outside"
+    for key in ("fan_in", "fan_out", "imported_by", "imports_direct"):
+        assert key not in ui_entity
+
+
+def test_impact_lists_are_budgeted_and_omitted_counts_are_honest(
+    tmp_path: Path,
+) -> None:
+    """Names beyond the budget must not be silently dropped -- an *_omitted
+    count must appear, while fan_in/fan_out always stay full counts."""
+    _write_declared_sources(tmp_path, "src/pkg/hub.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [
+                    {
+                        "id": "service:hub",
+                        "kind": "service",
+                        "name": "Hub",
+                        "responsibility": "Fixture entity.",
+                        "locator": "src/pkg/hub.py",
+                        "evidence_ids": [],
+                    }
+                ],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+    from moth.visual_policy import load_visual_policy
+
+    budget = int(load_visual_policy()["limits"]["impact_list_max"])
+    caller_modules = [f"pkg.caller{i}" for i in range(budget + 3)]
+    import_graph = _synthetic_import_graph(
+        roots=["src"],
+        modules=["pkg.hub", *caller_modules],
+        edges=[
+            {
+                "source": mod,
+                "target": "pkg.hub",
+                "locations": [{"path": "src/pkg/hub.py", "line": 1}],
+            }
+            for mod in caller_modules
+        ],
+    )
+
+    result = build_architecture_model(
+        tmp_path,
+        project=None,
+        applications=[],
+        runtimes=[],
+        modules=[],
+        import_graph=import_graph,
+    )
+
+    hub = next(item for item in result["entities"] if item["id"] == "service:hub")
+    assert hub["fan_in"] == budget + 3
+    assert len(hub["imported_by"]) == budget
+    assert hub["imported_by_omitted"] == 3
+    assert hub["fan_out"] == 0
+    assert hub["imports_direct"] == []
+    assert "imports_direct_omitted" not in hub
+
+
+def test_import_graph_not_ok_leaves_entities_without_impact_fields(
+    tmp_path: Path,
+) -> None:
+    """No configured import graph must never fabricate fan_in/fan_out -- same
+    rule as import_module/import_scope."""
+    _write_declared_sources(tmp_path, "src/pkg/a.py")
+    _write_architecture(
+        tmp_path,
+        {
+            "schema_version": "moth.architecture-declaration.v1",
+            "evidence": [],
+            "current": {
+                "complete": False,
+                "entities": [
+                    {
+                        "id": "service:a",
+                        "kind": "service",
+                        "name": "A",
+                        "responsibility": "Fixture entity.",
+                        "locator": "src/pkg/a.py",
+                        "evidence_ids": [],
+                    }
+                ],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+            "desired": {
+                "complete": False,
+                "entities": [],
+                "relations": [],
+                "flows": [],
+                "state_machines": [],
+            },
+        },
+    )
+    # No pyproject.toml at all -> self-derivation cannot infer any roots ->
+    # import_graph.state ends up NOT_CONFIGURED.
+
+    result = build_architecture_model(
+        tmp_path,
+        project=None,
+        applications=[],
+        runtimes=[],
+        modules=[],
+    )
+
+    entity = next(item for item in result["entities"] if item["id"] == "service:a")
+    for key in ("fan_in", "fan_out", "imported_by", "imports_direct"):
+        assert key not in entity

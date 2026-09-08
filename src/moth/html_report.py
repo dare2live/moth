@@ -19,12 +19,64 @@ def _status_class(value: Any) -> str:
     return "warn"
 
 
+# P5: 影响面字段(architecture_model 算出的模块级 fan-in/fan-out)单独成一小节
+# 渲染(_render_impact), 不能再混进下面的通用 attributes 表里出现第二遍。
+_IMPACT_ATTRIBUTE_KEYS = {
+    "fan_in",
+    "fan_out",
+    "imported_by",
+    "imports_direct",
+    "imported_by_omitted",
+    "imports_direct_omitted",
+}
+
+
+def _render_impact(attributes: dict[str, Any]) -> str:
+    """P5: 离线报告版的影响面小节 —— 计数 + 列表, 预算与 Web Console(P1/P2)同一份
+    (截断已经在 architecture_model/visual_model 里做过, 这里只如实显示)。
+    大白话措辞, 不直接把 fan_in/fan_out 这类字段名摆出来; 模块名旁边不猜文件路径。
+
+    计数字段(fan_in/fan_out/omitted)直接按 int 插值, **不**经过 `_text()` ——
+    `_text()` 用 `str(value or "")` 挡掉假值, fan_in=0 是一个真实且必须显示的计数
+    (某模块没有任何直接导入者), 经过 `_text()` 会被静默吞成空字符串, 和
+    `_render_provenance()` 对 confirmed=0 的既有处理是同一条规矩(见 J1 注释)。
+    这些字段本来就是 schema 校验过的整数, 不含需要转义的字符。
+    """
+    fan_in = attributes.get("fan_in")
+    fan_out = attributes.get("fan_out")
+    if fan_in is None and fan_out is None:
+        return ""
+    rows: list[str] = []
+    if fan_in is not None:
+        rows.append(f"<p>被 {int(fan_in)} 个模块直接导入</p>")
+        imported_by = attributes.get("imported_by") or []
+        if imported_by:
+            rows.append(
+                f'<p class="impact-list">{_text("、".join(str(m) for m in imported_by))}</p>'
+            )
+        omitted_in = attributes.get("imported_by_omitted")
+        if omitted_in:
+            rows.append(f'<p class="omitted">还有 {int(omitted_in)} 个未列出</p>')
+    if fan_out is not None:
+        rows.append(f"<p>直接导入 {int(fan_out)} 个模块</p>")
+        imports_direct = attributes.get("imports_direct") or []
+        if imports_direct:
+            rows.append(
+                f'<p class="impact-list">{_text("、".join(str(m) for m in imports_direct))}</p>'
+            )
+        omitted_out = attributes.get("imports_direct_omitted")
+        if omitted_out:
+            rows.append(f'<p class="omitted">还有 {int(omitted_out)} 个未列出</p>')
+    return f'<div class="impact"><h5>影响面</h5>{"".join(rows)}</div>'
+
+
 def _render_entity(entity: dict[str, Any]) -> str:
     attributes = entity.get("attributes") or {}
+    impact_html = _render_impact(attributes)
     details = "".join(
         f"<dt>{_text(key)}</dt><dd>{_text(value)}</dd>"
         for key, value in sorted(attributes.items())
-        if value is not None
+        if value is not None and key not in _IMPACT_ATTRIBUTE_KEYS
     )
     return (
         '<article class="entity">'
@@ -34,6 +86,7 @@ def _render_entity(entity: dict[str, Any]) -> str:
         "</div>"
         f'<p class="kind">{_text(entity.get("kind"))}</p>'
         f"<p>{_text(entity.get('summary'))}</p>"
+        + impact_html
         + (f'<dl class="attributes">{details}</dl>' if details else "")
         + "</article>"
     )
@@ -475,6 +528,10 @@ h1 {{ margin: 8px 0 6px; font-size: clamp(2rem,5vw,4.7rem); line-height: .98; le
 .attributes, .finding-grid {{ display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }}
 .attributes dt, .finding-grid dt {{ color: var(--muted); font-size: .78rem; }}
 .attributes dd, .finding-grid dd {{ margin: 0; overflow-wrap: anywhere; }}
+.impact {{ margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border-radius: 8px; }}
+.impact h5 {{ margin: 0 0 4px; font-size: .78rem; color: var(--muted); }}
+.impact p {{ margin: 3px 0; }}
+.impact .impact-list {{ color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }}
 .relations {{ padding: 14px 18px 0 34px; }}
 .relations span {{ color: var(--muted); margin: 0 6px; }}
 .relations .relation-source, .relations .relation-evidence {{ font-size: .72rem; margin-left: 4px; }}

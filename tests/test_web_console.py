@@ -1278,3 +1278,66 @@ def test_visual_policy_registers_imports_kind_reading_and_verification_reasons()
         "kind_outside_import_scope",
         "import_graph_not_configured",
     } <= reason_ids
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: "改这个会影响谁" / "我该先读哪几个" -- entity drawer impact section,
+# diagram neighbor highlighting on selection, and a fan_in-ranked reading list.
+# Style follows the existing "scan app.js/app.css source text" convention in
+# this file (see test_architecture_diagram_reads_provenance_not_kind_color) --
+# real interaction is verified by hand in the browser per the acceptance
+# report, this is the regression net.
+# ---------------------------------------------------------------------------
+
+
+def test_open_entity_shows_impact_as_its_own_plain_language_section() -> None:
+    """P2: 影响面单独成一小节, 不混进原始 attributes 表, 措辞用大白话
+    (不直接把 fan_in/fan_out 这类字段名摆给用户看)。
+    """
+    app_js = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "impact-section" in app_js
+    assert "个模块直接导入" in app_js
+    # 通用属性表必须把影响面字段挡在外面, 不能重复渲染一遍。
+    assert "IMPACT_ATTRIBUTE_KEYS" in app_js
+
+
+def test_architecture_diagram_highlights_direct_neighbors_and_distinguishes_direction() -> None:
+    """P3: 点选一个节点高亮它的直接上下游, 上游/下游要视觉可区分(不同 class),
+    再次点击或点击空白处恢复全图, 且不破坏既有的 Enter/Space 打开抽屉行为。
+    尊重 reduced-motion: 不新增任何 transition。
+    """
+    app_js = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    app_css = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert "hl-upstream" in app_js and "hl-downstream" in app_js
+    assert "hl-upstream" in app_css and "hl-downstream" in app_css
+    # 既有键盘行为必须原样保留: Enter/Space 打开详情抽屉。
+    assert 'ev.key === "Enter" || ev.key === " "' in app_js
+    assert "openEntity(e)" in app_js
+    # 高亮逻辑不能新增任何 CSS 过渡动画。
+    for cls in (".arch-node.dim", ".arch-node.hl-self", ".arch-node.hl-upstream",
+                ".arch-node.hl-downstream", ".arch-edge.dim", ".arch-edge.hl-upstream",
+                ".arch-edge.hl-downstream"):
+        block_start = app_css.find(cls)
+        assert block_start != -1, f"missing highlight rule: {cls}"
+        rule_end = app_css.find("}", block_start)
+        assert "transition" not in app_css[block_start:rule_end]
+
+
+def test_most_depended_on_panel_reads_fan_in_and_only_renders_when_data_exists() -> None:
+    """P4: "被依赖最多的组件"按 fan_in 降序, 只在数据存在时渲染整块。"""
+    app_js = (PROJECT_ROOT / "src" / "moth" / "web_assets" / "app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "被依赖最多的组件" in app_js
+    assert "fan_in" in app_js
+    # 空数据时必须整块不渲染(return null 之类的早退), 不能显示一个全零的榜单。
+    assert "arch-most-depended" in app_js

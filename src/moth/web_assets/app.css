@@ -143,6 +143,14 @@ dialog::backdrop { background: rgba(17, 27, 22, .48); }
 .attribute-list dt { color: var(--muted); font-size: 11px; }
 .attribute-list dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 
+/* 影响面(P2): 独立小节, 与上面通用的 attribute-list 视觉上区分开, 不让它看起来
+   像随便一条原始字段。 */
+.impact-section { margin: 8px 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.impact-section h3 { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.impact-line { margin: 4px 0; font-size: 12px; }
+.impact-list { margin: 2px 0 6px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.impact-omitted { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-style: italic; }
+
 .loading-mask { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; gap: 12px; min-width: 220px; color: var(--ink); background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(3px); font-size: 13px; font-weight: 700; }
 .loading-line { position: relative; width: 220px; height: 3px; overflow: hidden; background: var(--line); }
 .loading-line::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 45%; background: var(--accent); animation: loading 1s ease-in-out infinite alternate; }
@@ -263,12 +271,36 @@ dialog::backdrop { background: rgba(17, 27, 22, .48); }
 .arch-label { fill: var(--ink); font-size: 11px; font-weight: 700; pointer-events: none; }
 .arch-sub-label { fill: var(--muted); font-size: 9px; pointer-events: none; }
 .arch-unconnected-label { fill: var(--muted); font-size: 11px; font-weight: 700; }
+
+/* P3: 点选高亮 —— 纯状态切换, 不加任何 transition(尊重 prefers-reduced-motion:
+   没有动画过渡, 也就无所谓"减少动画")。上游(依赖它的)用 accent 实色描边,
+   下游(它依赖的)用 warn 虚线描边, 与图例里的两个色块一一对应。 */
+.arch-node.dim rect { opacity: .3; }
+.arch-node.dim .arch-label, .arch-node.dim .arch-sub-label { opacity: .3; }
+.arch-node.hl-self rect { stroke: var(--ink); stroke-width: 2.6; }
+.arch-node.hl-upstream rect { stroke: var(--accent); stroke-width: 2.2; }
+.arch-node.hl-downstream rect { stroke: var(--warn); stroke-width: 2.2; stroke-dasharray: 5 3; }
+.arch-edge.dim { opacity: .16; }
+.arch-edge.hl-upstream { stroke: var(--accent); stroke-width: 2.2; }
+.arch-edge.hl-downstream { stroke: var(--warn); stroke-width: 2.2; }
+
 .arch-legend { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .arch-legend-group h3 { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .arch-legend-group ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .arch-legend-group li { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
 .legend-swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--muted); }
 .legend-swatch.dashed { border-top-style: dashed; }
+.legend-swatch.hl-upstream-swatch { border-top-color: var(--accent); border-top-width: 3px; }
+.legend-swatch.hl-downstream-swatch { border-top-color: var(--warn); border-top-width: 3px; border-top-style: dashed; }
 .legend-kind { padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; }
+.arch-meta-hint { color: var(--muted); }
 .arch-flow-note { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .link-button { display: inline; min-height: 0; padding: 0; border: 0; color: var(--accent); background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }
+
+/* P4: "被依赖最多的组件" —— 短名单, 点击跳到详情抽屉。 */
+.arch-most-depended { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.arch-most-depended h3 { margin: 0 0 8px; font-size: 13px; }
+.arch-most-depended ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.arch-most-depended-item { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 8px; text-align: left; }
+.arch-most-depended-name { color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
+.arch-most-depended-count { color: var(--muted); font-size: 11px; white-space: nowrap; }

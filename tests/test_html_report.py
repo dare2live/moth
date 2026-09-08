@@ -368,3 +368,94 @@ def test_html_report_shows_evidence_locations_for_confirmed_and_detected_relatio
     # 只有 relation:a-b / relation:b-c 有坐标; relation:c-d 是 DECLARED + NOT_OBSERVED,
     # 没有坐标可给, 不该出现这个 span。
     assert html.count('class="relation-evidence"') == 2
+
+
+# P5: 离线报告的实体卡片补上影响面(计数 + 列表), 预算与 web console(P1/P2)同一份;
+# 硬约束不变 —— CSP 不改, 无 <script>, 走既有 _text() 转义, 两次渲染字节相同。
+
+
+def _fixture_with_impact_entity(**overrides: object) -> dict:
+    inspection = inspection_fixture()
+    project_model = inspection["snapshot"]["project_model"]
+    entity = {
+        "id": "service:hub",
+        "kind": "service",
+        "name": "Hub",
+        "responsibility": "Central hub.",
+        "locator": "src/hub.py",
+        "import_module": "sample.hub",
+        "fan_in": 9,
+        "fan_out": 1,
+        "imported_by": [f"sample.c{i}" for i in range(8)],
+        "imports_direct": ["sample.util"],
+        "evidence_ids": ["manifest:pyproject.toml"],
+    }
+    entity.update(overrides)
+    project_model.update(
+        {
+            "schema_version": "moth.project-model.v2",
+            "entities": [entity],
+            "relations": [],
+            "flows": [],
+            "state_machines": [],
+        }
+    )
+    return inspection
+
+
+def test_html_report_renders_impact_section_separately_from_raw_attributes() -> None:
+    model = build_visual_model(
+        _fixture_with_impact_entity(imported_by_omitted=1)
+    )
+
+    html = render_html_report(model)
+
+    assert '<div class="impact">' in html
+    assert "被 9 个模块直接导入" in html
+    assert "直接导入 1 个模块" in html
+    assert "sample.c0" in html
+    assert "sample.util" in html
+    assert "还有 1 个未列出" in html
+    # 影响面字段不该再次出现在通用属性表里(dt/dd 对), 只应该出现在专门的小节里。
+    assert "<dt>fan_in</dt>" not in html
+    assert "<dt>imported_by</dt>" not in html
+    assert "<dt>fan_out</dt>" not in html
+    assert "<dt>imports_direct</dt>" not in html
+    # 硬约束: CSP 一行不变, 没有 <script>。
+    assert (
+        '<meta http-equiv="Content-Security-Policy" '
+        "content=\"default-src 'none'; style-src 'unsafe-inline'; "
+        "img-src data:; base-uri 'none'; form-action 'none'\">"
+    ) in html
+    assert "<script" not in html
+
+
+def test_html_report_impact_entity_renders_are_byte_identical() -> None:
+    model = build_visual_model(_fixture_with_impact_entity())
+
+    first = render_html_report(model)
+    second = render_html_report(model)
+
+    assert first == second
+
+
+def test_html_report_shows_zero_fan_in_explicitly_not_a_blank() -> None:
+    """fan_in=0 是一个真实计数(没有任何直接导入者), 不能被 _text() 的假值兜底
+    (`str(value or "")`)悄悄吞成空字符串 —— 与 J1 对 confirmed=0 的既有规矩一致。
+    """
+    model = build_visual_model(
+        _fixture_with_impact_entity(fan_in=0, imported_by=[], imports_direct=[])
+    )
+
+    html = render_html_report(model)
+
+    assert "被 0 个模块直接导入" in html
+
+
+def test_html_report_omits_impact_section_when_entity_has_no_impact_data() -> None:
+    """没有 fan_in/fan_out 的实体(比如 import 图管不到)不该出现影响面小节。"""
+    model = build_visual_model(inspection_fixture())
+
+    html = render_html_report(model)
+
+    assert '<div class="impact">' not in html

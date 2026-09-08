@@ -15,6 +15,19 @@ from moth.visual_policy import load_visual_policy
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 _BUCKET_RANK = {"now": 0, "watch": 1, "defer": 2}
 
+# P1/P2: architecture_model 挂在实体上的影响面字段(模块级 fan-in/fan-out) ——
+# 与 import_module/import_scope 同一条透传规矩: 有就带进 attributes, 缺就不写,
+# 不补 0/空列表。列在一处, 两处重建(unified entities 初次构建 + applications/
+# modules 循环按同一个 id 重建覆盖)都要用同一份 key 集合, 不能漏改一处。
+_IMPACT_ATTRIBUTE_KEYS = (
+    "fan_in",
+    "fan_out",
+    "imported_by",
+    "imports_direct",
+    "imported_by_omitted",
+    "imports_direct_omitted",
+)
+
 
 def _mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -329,6 +342,9 @@ def _build_entities(
         # N3: import_module/import_scope 是 import 图验证时(architecture_model.
         # _classify_entity_import_scope)挂在实体上的坐标信息 —— 有就带进 attributes,
         # openEntity 已经泛化渲染它, 不必新写一条 UI。缺失就不写这个键, 不编空字符串。
+        # P1: fan_in/fan_out/imported_by/imports_direct(+*_omitted 计数)同一条规矩,
+        # 用 `key in item` 而不是 `item.get(key)` 判断存在 —— fan_in=0 是一个真实的
+        # 计数(某模块没有任何直接导入者), 不能被当成"没有这个字段"漏掉。
         attributes: dict[str, Any] = {}
         if item.get("locator"):
             attributes["locator"] = item.get("locator")
@@ -336,6 +352,9 @@ def _build_entities(
             attributes["import_module"] = item.get("import_module")
         if item.get("import_scope"):
             attributes["import_scope"] = item.get("import_scope")
+        for key in _IMPACT_ATTRIBUTE_KEYS:
+            if key in item:
+                attributes[key] = item[key]
         entities[entity_id] = _entity(
             entity_id,
             kind=kind,
@@ -360,7 +379,8 @@ def _build_entities(
     # attributes —— 查 moth 自己的真实数据实测: python-console:moth 在 unified
     # entities 里带 import_module=moth.cli, 但 applications 循环用只有 entrypoint
     # 的 attributes 把它整个换掉, import_module 就丢了。这张表按 id 记一份
-    # import_module/import_scope, 供后面两处重建时合并回去, 不重新计算一次。
+    # import_module/import_scope(+P1 的影响面字段), 供后面两处重建时合并回去,
+    # 不重新计算一次。
     import_scope_by_id: dict[str, dict[str, Any]] = {}
     for raw in unified_entities:
         item = _mapping(raw)
@@ -372,6 +392,9 @@ def _build_entities(
             scoped["import_module"] = item.get("import_module")
         if item.get("import_scope"):
             scoped["import_scope"] = item.get("import_scope")
+        for key in _IMPACT_ATTRIBUTE_KEYS:
+            if key in item:
+                scoped[key] = item[key]
         if scoped:
             import_scope_by_id[entity_id] = scoped
 
