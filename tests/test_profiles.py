@@ -25,10 +25,12 @@ def test_load_chunkymonkey_profile() -> None:
     assert profile.name == "chunkymonkey"
     assert profile.repo_path == Path("/Users/dp/Documents/M/stock/chunkymonkey")
     assert profile.evidence_paths["goal"].name == "goal.md"
+    assert profile.evidence_paths["rules"].name == "CLAUDE.md"
     assert profile.codegraph_root == Path("/Users/dp/Documents/M/stock/chunkymonkey")
-    assert profile.complexity_baseline_path == Path(
-        "/Users/dp/Documents/M/stock/chunkymonkey/data/reports/tooling/complexity_baseline.json"
-    )
+    # complexity_baseline_path 已从 profile 移除(2026-09-08): 它指向的
+    # data/reports/tooling 目录在目标仓库里整个不存在了, 留着只会让每次检查
+    # 都报一条无人能修的 missing baseline。
+    assert profile.complexity_baseline_path is None
     # complexity_command 已注释掉 → 内建分析器模式。
     assert profile.complexity_command == []
     assert profile.complexity_excludes == []

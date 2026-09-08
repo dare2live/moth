@@ -650,16 +650,16 @@ def test_profile_name_emits_registry_instruction_sources(capsys) -> None:
     payload = json.loads(captured.out)
 
     assert code == 0
+    # 2026-09-08 与目标仓库的 repo-local profile 对齐。此前这里钉的是 2026-06-05 的
+    # 形态, 其中 AGENTS.md / SESSION_HANDOFF.md / analysis/ / docs/ 在那个仓库里都已
+    # 不存在, 而 CLAUDE.md 被写成默认忽略 —— 与现实正好相反: 它现在是那个项目唯一的
+    # 规则文件。断言跟着配置走, 不是配置跟着断言走。
     assert payload["instruction_sources"]["active"] == [
-        "AGENTS.md",
+        "CLAUDE.md",
         "goal.md",
-        "SESSION_HANDOFF.md",
-        "analysis/workflow_checkpoint.md",
-        "docs/",
-        "Codex skills",
         "live tooling output",
     ]
-    assert payload["instruction_sources"]["ignored_by_default"] == ["CLAUDE.md"]
+    assert payload["instruction_sources"]["ignored_by_default"] == []
 
 
 def test_init_writes_repo_local_profile(tmp_path, capsys) -> None:

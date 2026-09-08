@@ -20,30 +20,6 @@ def _coupling_pass(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _guidance_skill_available(monkeypatch, tmp_path) -> None:
-    """给 guidance 一个能解析到的 Skill 目录。
-
-    profiles/chunkymonkey.yaml 声明了 `provider: codex_skill` 的 mio, 而 moth 去
-    `${CODEX_HOME:-~/.codex}/skills/` 找它。这台机器上 mio 装在 ~/.claude/skills/mio,
-    于是 resolve_guidance_sources 恒报 "skill is unavailable" -> WARN, 任何断言
-    status == PASS 的用例都被一个与它无关的环境事实拖红。
-
-    与上面两个 fixture 同一意图: 把与被测意图无关的外部依赖钉成确定值。真正测
-    guidance 的用例(test_build_report_surfaces_tooling_evidence)自己 setenv 覆盖
-    这里, 不受影响。
-    """
-
-    codex_home = tmp_path / "autouse-codex-home"
-    skill_dir = codex_home / "skills" / "mio"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: mio\ndescription: Personal collaboration lens.\n---\n# Mio\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-
-@pytest.fixture(autouse=True)
 def _duckdb_storage_quiet(monkeypatch) -> None:
     monkeypatch.setattr(
         report_module,

@@ -1,59 +1,35 @@
 kind: profile
 name: chunkymonkey
+# 这份 bundled profile 只在显式 `--profile chunkymonkey` 或 `moth profiles` 时生效。
+# 真实检查走仓库自己的 .moth/profile.yaml —— loader 本地优先(loader.py:458-465)。
+# 2026-09-08 与那份 repo-local 对齐: 此前它停在 2026-06-05 的形态, 声明了 12 条
+# 早已不存在的证据(AGENTS.md / SESSION_HANDOFF.md / analysis/ / docs/ 整个目录 /
+# data/reports/tooling 整个目录 / 三个 ~/.codex/skills/*), 于是 `--profile chunkymonkey`
+# 恒为 FAIL —— 报的全是配置自己的过期, 不是那个仓库的状况。
+# 更要命的是它与现实**方向相反**: 它写着 CLAUDE.md 默认忽略, 而该仓库现在把 CLAUDE.md
+# 当作唯一的项目规则文件。一份说反了的 profile 比没有 profile 更坏。
 repo_path: /Users/dp/Documents/M/stock/chunkymonkey
 codegraph_root: .
-# 缺省 = moth 内建分析器 (moth.analyzers.complexity, 进程内); 要用外部脚本再解开:
-# complexity_command:
-#   - python
-#   - ~/.codex/skills/complexity-optimizer/scripts/analyze_complexity.py
-#   - /Users/dp/Documents/M/stock/chunkymonkey
-#   - --format
-#   - markdown
-# 内建模式的目录名排除 (显式 complexity_command 时忽略, doctor 会提示):
-# complexity_excludes:
-#   - .venv_scrape
-complexity_baseline_path: data/reports/tooling/complexity_baseline.json
+# 缺省 = moth 内建分析器 (moth.analyzers.complexity, 进程内)。
+# complexity_baseline_path 已移除: data/reports/tooling 目录本身不复存在,
+# 指着它只会让每次检查都报一条无人能修的 missing baseline。
 evidence_paths:
-  agents: AGENTS.md
   goal: goal.md
-  handoff: SESSION_HANDOFF.md
-  workflow_checkpoint: analysis/workflow_checkpoint.md
-  quickstart: docs/chunkyctl_session_quickstart.md
-  engineering_governance: docs/engineering_governance.md
-  project_constitution: docs/PROJECT_CONSTITUTION.md
-  codex_global_agents: /Users/dp/.codex/AGENTS.md
-  skill_codex_local_ops: /Users/dp/.codex/skills/codex-local-ops/SKILL.md
-  skill_architect_controller: /Users/dp/.codex/skills/architect-controller/SKILL.md
-  skill_chunkymonkey_governance: /Users/dp/.codex/skills/chunkymonkey-governance/SKILL.md
-  skill_chunkymonkey_review_gate: /Users/dp/.codex/skills/chunkymonkey-review-gate/SKILL.md
-  docs: docs
-  tooling_reports: data/reports/tooling
+  rules: CLAUDE.md
+  sandbox: sandbox/README.md
 instruction_sources:
   active:
-    - AGENTS.md
-    - goal.md
-    - SESSION_HANDOFF.md
-    - analysis/workflow_checkpoint.md
-    - docs/
-    - Codex skills
-    - live tooling output
-  ignored_by_default:
     - CLAUDE.md
-  legacy_exception: Open CLAUDE.md only when the user explicitly requests historical comparison or migration.
-  sources:
-    - id: mio
-      kind: collaboration_lens
-      provider: codex_skill
-      ref: skill:mio
-      activation: substantive_judgment
-      requirement: required_when_active
-      scope: user
-      owner: user
-      sensitivity: personal
-      egress_policy: metadata_only
+    - goal.md
+    - live tooling output
+  context_only:
+    - chunkyctl history
+  ignored_by_default: []
 notes: >
   Controller-first ChunkyMonkey profile. Moth owns shared tooling state such as
-  dirty worktree, CodeGraph, complexity, and evidence path discovery, including
-  the local Codex skills that govern startup/local-ops and Rule 10 review. Repo
-  audit scripts and chunkyctl own business gates such as stage_opt, need_027,
-  storage_payload, and data_health.
+  dirty worktree, CodeGraph, complexity, and evidence path discovery. Repo audit
+  scripts and chunkyctl own business gates and local execution-surface checks
+  such as data integrity, taxonomy/PIT, strategy promotion, and data health.
+  goal.md is the compact live controller board and CLAUDE.md is the sole project
+  rules file; history has no file — query it with `scripts/chunkyctl history
+  --grep <term>` / `--eras` (git is the original).
