@@ -327,3 +327,33 @@ def test_resolver_supports_architect_controller_ordering_metadata(tmp_path: Path
     assert report["sources"][0]["state"] == "DISCOVERED"
     assert report["sources"][0]["load_after"] == ["mio"]
     assert sanitize_instruction_sources({"sources": [source]})["sources"][0]["load_after"] == ["mio"]
+
+
+def test_declared_but_missing_skill_is_unavailable_not_silently_loaded(
+    tmp_path: Path,
+) -> None:
+    """声明了 Skill 而它不在 codex home 里 —— 必须诚实报 UNAVAILABLE。
+
+    这条路径此前没有任何测试保护, 而它恰恰是本机的真实状态:
+    profiles/chunkymonkey.yaml 声明 `provider: codex_skill` 的 mio, 但 mio 实际装在
+    ~/.claude/skills/mio 下, 而 moth 只看 ${CODEX_HOME:-~/.codex}/skills/ ——
+    于是它恒为 UNAVAILABLE。tests/test_report.py 的 autouse fixture 现在会造一个临时
+    codex home 让无关用例不被这个环境事实拖红, 所以"缺失能被发现"这半边必须在这里钉住,
+    否则那个 fixture 就成了掩盖能力退化的盖子。
+    """
+
+    empty_home = tmp_path / "empty-codex-home"
+    (empty_home / "skills").mkdir(parents=True)
+
+    report = resolve_guidance_sources({"sources": [_mio_source()]}, codex_home=empty_home)
+
+    assert report["verdict"] == "WARN"
+    assert report["sources"][0]["state"] == "UNAVAILABLE"
+    assert any("unavailable" in warning for warning in report["warnings"])
+    # 发现不到的东西不能带着 digest —— 那会让"没读到"看起来像"读过并校验过"。
+    # 字段保留、值为 None 是对的: schema 形状稳定, 而 None 明确说"没有摘要",
+    # 比整个键消失更难被下游误读成"这里本来就不需要摘要"。
+    assert report["sources"][0]["source_digest"] is None
+    assert report["sources"][0]["source_mtime"] is None
+    assert report["sources"][0]["body_exported"] is False
+    assert str(empty_home) not in repr(report)
